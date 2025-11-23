@@ -1,5 +1,6 @@
+use crate::product::Product;
+use golem_rust::{agent_definition, agent_implementation, Schema};
 use std::collections::HashMap;
-use golem_rust::Schema;
 
 #[derive(Schema, Clone)]
 pub struct Pricing {
@@ -104,18 +105,22 @@ fn get_price(currency: String, zone: String, pricing: Pricing) -> Option<Pricing
     //         && x.end.is_none_or(|v| now < v)
     // });
 
-
     // if sale_price.is_some() {
     //     sale_price.map(|p| p.into())
     // } else {
-        let list_price =
-            pricing.list_prices.into_iter().find(|x| x.zone == zone && x.currency == currency);
+    let list_price = pricing
+        .list_prices
+        .into_iter()
+        .find(|x| x.zone == zone && x.currency == currency);
 
-        if list_price.is_some() {
-            list_price
-        } else {
-            pricing.msrp_prices.into_iter().find(|x| x.zone == zone && x.currency == currency)
-        }
+    if list_price.is_some() {
+        list_price
+    } else {
+        pricing
+            .msrp_prices
+            .into_iter()
+            .find(|x| x.zone == zone && x.currency == currency)
+    }
     // }
 }
 
@@ -182,3 +187,60 @@ fn merge_items(updates: Vec<PricingItem>, current: Vec<PricingItem>) -> Vec<Pric
 //         values
 //     }
 // }
+
+#[agent_definition]
+trait PricingAgent {
+    fn new(init: PricingAgentId) -> Self;
+    async fn get_pricing(&self) -> Option<Pricing>;
+
+    async fn get_price(&self, currency: String, zone: String) -> Option<PricingItem>;
+    
+    async fn initialize_pricing(
+        &mut self,
+        msrp_prices: Vec<PricingItem>,
+        list_prices: Vec<PricingItem>,
+    );
+}
+
+struct PricingAgentImpl {
+    _id: PricingAgentId,
+    state: Option<Pricing>,
+}
+
+#[agent_implementation]
+impl PricingAgent for PricingAgentImpl {
+    fn new(id: PricingAgentId) -> Self {
+        PricingAgentImpl {
+            _id: id,
+            state: None,
+        }
+    }
+
+    async fn get_price(&self, currency: String, zone: String) -> Option<PricingItem> {
+        println!("Getting pricing for currency: {} zone: {}", currency, zone);
+        self.state
+            .clone()
+            .and_then(|pricing| pricing.get_price(currency, zone))
+    }
+
+    async fn get_pricing(&self) -> Option<Pricing> {
+        self.state.clone()
+    }
+
+    async fn initialize_pricing(
+        &mut self,
+        msrp_prices: Vec<PricingItem>,
+        list_prices: Vec<PricingItem>,
+    ) {
+        self.state = Some(Pricing {
+            msrp_prices,
+            list_prices,
+            product_id: self._id.id.clone(),
+        });
+    }
+}
+
+#[derive(Schema)]
+struct PricingAgentId {
+    id: String,
+}

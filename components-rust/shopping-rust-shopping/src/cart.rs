@@ -1,5 +1,6 @@
-use golem_rust::Schema;
+use golem_rust::{agent_definition, agent_implementation, Schema};
 use crate::common::{Address, CURRENCY_DEFAULT};
+use crate::pricing::{Pricing, PricingItem};
 
 #[derive(Schema, Clone)]
 pub struct Cart {
@@ -119,4 +120,37 @@ pub fn get_total_price(items: Vec<CartItem>) -> f32 {
     }
 
     total
+}
+
+
+#[agent_definition]
+trait CartAgent {
+    fn new(init: CartAgentId) -> Self;
+    
+    async fn get_cart(&self) -> Option<Cart>;
+
+}
+
+struct CartAgentImpl {
+    _id: CartAgentId,
+    state: Option<Cart>,
+}
+
+#[agent_implementation]
+impl CartAgent for CartAgentImpl {
+    fn new(id: CartAgentId) -> Self {
+        CartAgentImpl {
+            _id: id,
+            state: None,
+        }
+    }
+
+    async fn get_cart(&self) -> Option<Cart> {
+        self.state.clone()
+    }
+}
+
+#[derive(Schema)]
+struct CartAgentId {
+    id: String,
 }

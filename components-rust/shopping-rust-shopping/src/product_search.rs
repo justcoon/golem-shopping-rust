@@ -1,5 +1,14 @@
 use crate::product::Product;
+use golem_rust::bindings::golem::api::host::resolve_component_id;
+use golem_rust::golem_agentic::golem::api::host::{
+    AgentAllFilter, AgentAnyFilter, AgentNameFilter, AgentPropertyFilter, GetAgents,
+    StringFilterComparator,
+};
+use golem_rust::wasm_rpc::ComponentId;
 use golem_rust::{agent_definition, agent_implementation, Schema};
+use regex::Regex;
+use std::collections::HashSet;
+
 
 #[derive(Clone, Debug)]
 struct ProductQueryMatcher {
@@ -101,28 +110,85 @@ impl ProductQueryMatcher {
     }
 }
 
-#[agent_definition(mode = "ephemeral")]
-trait ProductSearch {
-    fn new(init: ProductSearchId) -> Self;
-    async fn search(&mut self, query: String) -> Result<Vec<Product>, String>;
+
+fn get_agent_filter() -> AgentAnyFilter {
+    AgentAnyFilter {
+        filters: vec![AgentAllFilter {
+            filters: vec![AgentPropertyFilter::Name(AgentNameFilter {
+                comparator: StringFilterComparator::StartsWith,
+                value: "product-agent(".to_string(),
+            })],
+        }],
+    }
 }
 
-struct ProductSearchImpl {
-    _id: ProductSearchId,
+fn get_product_agent_id(agent_name: &str) -> Option<String> {
+    Regex::new(r"product-agent\(([^)]+)\)")
+        .ok()?
+        .captures(agent_name)
+        .filter(|caps| caps.len() > 0)
+        .map(|caps| caps[1].to_string())
+}
+
+async fn get_products(
+    workers: HashSet<String>,
+    matcher: ProductQueryMatcher,
+) -> Result<Vec<Product>, String> {
+    Result::Ok(vec![])
+}
+
+#[agent_definition(mode = "ephemeral")]
+trait ProductSearchAgent {
+    fn new(init: ProductSearchAgentId) -> Self;
+    async fn search(&self, query: String) -> Result<Vec<Product>, String>;
+}
+
+struct ProductSearchAgentImpl {
+    _id: ProductSearchAgentId,
+    component_id: Option<ComponentId>,
 }
 
 #[agent_implementation]
-impl ProductSearch for ProductSearchImpl {
-    fn new(id: ProductSearchId) -> Self {
-        ProductSearchImpl { _id: id }
+impl ProductSearchAgent for ProductSearchAgentImpl {
+    fn new(id: ProductSearchAgentId) -> Self {
+        let component_id = resolve_component_id("shopping-rust:shopping");
+        ProductSearchAgentImpl {
+            _id: id,
+            component_id,
+        }
     }
 
-    async fn search(&mut self, query: String) -> Result<Vec<Product>, String> {
-        todo!()
+    async fn search(&self, query: String) -> Result<Vec<Product>, String> {
+        if let Some(component_id) = self.component_id {
+            let mut values: Vec<Product> = Vec::new();
+            let matcher = ProductQueryMatcher::new(&query);
+
+            let filter = get_agent_filter();
+
+            let get_agents = GetAgents::new(component_id, Some(&filter), false);
+
+            let mut processed_agent_ids: HashSet<String> = HashSet::new();
+
+            while let Some(agents) = get_agents.get_next() {
+                let agent_ids = agents
+                    .iter()
+                    .filter_map(|a| get_product_agent_id(a.agent_id.agent_id.as_str()))
+                    .filter(|n| !processed_agent_ids.contains(n))
+                    .collect::<HashSet<_>>();
+
+                let products = get_products(agent_ids.clone(), matcher.clone()).await?;
+                processed_agent_ids.extend(agent_ids);
+                values.extend(products);
+            }
+
+            Ok(values)
+        } else {
+            Err("Component not found".to_string())
+        }
     }
 }
 
 #[derive(Schema)]
-struct ProductSearchId {
+struct ProductSearchAgentId {
     id: String,
 }
