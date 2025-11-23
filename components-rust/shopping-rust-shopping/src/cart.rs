@@ -1,6 +1,8 @@
-use golem_rust::{agent_definition, agent_implementation, Schema};
 use crate::common::{Address, CURRENCY_DEFAULT};
-use crate::pricing::{Pricing, PricingItem};
+use email_address::EmailAddress;
+use golem_rust::{agent_definition, agent_implementation, Schema};
+use std::str::FromStr;
+use uuid::Uuid;
 
 #[derive(Schema, Clone)]
 pub struct Cart {
@@ -112,7 +114,83 @@ pub struct CartItem {
     pub quantity: u32,
 }
 
-pub fn get_total_price(items: Vec<CartItem>) -> f32 {
+#[derive(Schema, Clone)]
+pub struct ItemNotFoundError {
+    pub message: String,
+    pub product_id: String,
+}
+#[derive(Schema, Clone)]
+pub struct PricingNotFoundError {
+    pub message: String,
+    pub product_id: String,
+}
+#[derive(Schema, Clone)]
+pub struct ProductNotFoundError {
+    pub message: String,
+    pub product_id: String,
+}
+#[derive(Schema, Clone)]
+pub struct EmailNotValidError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct EmptyItemsError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct AddressNotValidError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct BillingAddressNotSetError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct EmptyEmailError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct OrderCreateError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub enum AddItemError {
+    ProductNotFound(ProductNotFoundError),
+    PricingNotFound(PricingNotFoundError),
+}
+#[derive(Schema, Clone)]
+pub enum RemoveItemError {
+    ItemNotFound(ItemNotFoundError),
+}
+#[derive(Schema, Clone)]
+pub enum ShipOrderError {
+    EmptyItems(EmptyItemsError),
+    EmptyEmail(EmptyEmailError),
+    BillingAddressNotSet(BillingAddressNotSetError),
+}
+#[derive(Schema, Clone)]
+pub enum UpdateEmailError {
+    EmailNotValid(EmailNotValidError),
+}
+#[derive(Schema, Clone)]
+pub enum UpdateItemQuantityError {
+    ItemNotFound(ItemNotFoundError),
+}
+#[derive(Schema, Clone)]
+pub enum CheckoutError {
+    ProductNotFound(ProductNotFoundError),
+    PricingNotFound(PricingNotFoundError),
+    EmptyItems(EmptyItemsError),
+    EmptyEmail(EmptyEmailError),
+    BillingAddressNotSet(BillingAddressNotSetError),
+    OrderCreate(OrderCreateError),
+}
+#[derive(Schema, Clone)]
+pub struct OrderConfirmation {
+    pub order_id: String,
+}
+
+fn get_total_price(items: Vec<CartItem>) -> f32 {
     let mut total = 0f32;
 
     for item in items {
@@ -122,18 +200,32 @@ pub fn get_total_price(items: Vec<CartItem>) -> f32 {
     total
 }
 
+fn generate_order_id() -> String {
+    Uuid::new_v4().to_string()
+}
 
 #[agent_definition]
 trait CartAgent {
     fn new(init: CartAgentId) -> Self;
-    
-    async fn get_cart(&self) -> Option<Cart>;
 
+    async fn get_cart(&self) -> Option<Cart>;
+    async fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError>;
 }
 
 struct CartAgentImpl {
     _id: CartAgentId,
     state: Option<Cart>,
+}
+
+impl CartAgentImpl {
+    fn with_state<T>(&mut self, f: impl FnOnce(&mut Cart) -> T) -> T {
+        if self.state.is_none() {
+            let value = Cart::new(self._id.id.clone());
+            self.state = Some(value);
+        }
+
+        f(self.state.as_mut().unwrap())
+    }
 }
 
 #[agent_implementation]
@@ -147,6 +239,25 @@ impl CartAgent for CartAgentImpl {
 
     async fn get_cart(&self) -> Option<Cart> {
         self.state.clone()
+    }
+
+    async fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError> {
+        self.with_state(|state| {
+            println!(
+                "Updating email {} for the cart of user {}",
+                email, state.user_id
+            );
+
+            match EmailAddress::from_str(email.as_str()) {
+                Ok(_) => {
+                    state.set_email(email);
+                    Ok(())
+                }
+                Err(e) => Err(UpdateEmailError::EmailNotValid(EmailNotValidError {
+                    message: format!("Invalid email: {e}"),
+                })),
+            }
+        })
     }
 }
 

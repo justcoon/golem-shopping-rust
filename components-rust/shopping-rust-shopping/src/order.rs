@@ -1,6 +1,7 @@
-use crate::cart::Cart;
 use crate::common::{Address, CURRENCY_DEFAULT};
+use email_address::EmailAddress;
 use golem_rust::{agent_definition, agent_implementation, Schema};
+use std::str::FromStr;
 
 #[derive(Schema, Clone)]
 pub struct Order {
@@ -104,11 +105,128 @@ pub struct OrderItem {
     pub quantity: u32,
 }
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Copy, Eq, PartialEq)]
 pub enum OrderStatus {
     New,
     Shipped,
     Cancelled,
+}
+
+#[derive(Schema, Clone)]
+pub struct CreateOrder {
+    pub user_id: String,
+    pub email: Option<String>,
+    pub items: Vec<OrderItem>,
+    pub billing_address: Option<Address>,
+    pub shipping_address: Option<Address>,
+    pub total: f32,
+    pub currency: String,
+}
+
+#[derive(Schema, Clone)]
+pub struct ActionNotAllowedError {
+    pub message: String,
+    pub status: OrderStatus,
+}
+
+#[derive(Schema, Clone)]
+pub struct ItemNotFoundError {
+    pub message: String,
+    pub product_id: String,
+}
+#[derive(Schema, Clone)]
+pub struct PricingNotFoundError {
+    pub message: String,
+    pub product_id: String,
+}
+#[derive(Schema, Clone)]
+pub struct ProductNotFoundError {
+    pub message: String,
+    pub product_id: String,
+}
+#[derive(Schema, Clone)]
+pub struct EmailNotValidError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct EmptyItemsError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct AddressNotValidError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct BillingAddressNotSetError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct EmptyEmailError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub enum AddItemError {
+    ProductNotFound(ProductNotFoundError),
+    PricingNotFound(PricingNotFoundError),
+    ActionNotAllowed(ActionNotAllowedError),
+}
+#[derive(Schema, Clone)]
+pub enum RemoveItemError {
+    ItemNotFound(ItemNotFoundError),
+    ActionNotAllowed(ActionNotAllowedError),
+}
+#[derive(Schema, Clone)]
+pub enum ShipOrderError {
+    EmptyItems(EmptyItemsError),
+    EmptyEmail(EmptyEmailError),
+    BillingAddressNotSet(BillingAddressNotSetError),
+    ActionNotAllowed(ActionNotAllowedError),
+}
+#[derive(Schema, Clone)]
+pub enum UpdateEmailError {
+    EmailNotValid(EmailNotValidError),
+    ActionNotAllowed(ActionNotAllowedError),
+}
+#[derive(Schema, Clone)]
+pub enum UpdateItemQuantityError {
+    ItemNotFound(ItemNotFoundError),
+    ActionNotAllowed(ActionNotAllowedError),
+}
+#[derive(Schema, Clone)]
+pub enum CancelOrderError {
+    ActionNotAllowed(ActionNotAllowedError),
+}
+#[derive(Schema, Clone)]
+pub enum InitOrderError {
+    ActionNotAllowed(ActionNotAllowedError),
+}
+
+fn action_not_allowed_error(status: OrderStatus) -> ActionNotAllowedError {
+    ActionNotAllowedError {
+        message: "Can not update order with status".to_string(),
+        status: status.into(),
+    }
+}
+
+fn item_not_found_error(product_id: String) -> ItemNotFoundError {
+    ItemNotFoundError {
+        message: "Item not found".to_string(),
+        product_id,
+    }
+}
+
+fn pricing_not_found_error(product_id: String) -> PricingNotFoundError {
+    PricingNotFoundError {
+        message: "Pricing not found".to_string(),
+        product_id,
+    }
+}
+
+fn product_not_found_error(product_id: String) -> ProductNotFoundError {
+    ProductNotFoundError {
+        message: "Product not found".to_string(),
+        product_id,
+    }
 }
 
 pub fn get_total_price(items: Vec<OrderItem>) -> f32 {
@@ -126,11 +244,24 @@ trait OrderAgent {
     fn new(init: OrderAgentId) -> Self;
 
     async fn get_cart(&self) -> Option<Order>;
+    async fn initialize_order(&mut self, data: CreateOrder) -> Result<(), InitOrderError>;
+    async fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError>;
 }
 
 struct OrderAgentImpl {
     _id: OrderAgentId,
     state: Option<Order>,
+}
+
+impl OrderAgentImpl {
+    fn with_state<T>(&mut self, f: impl FnOnce(&mut Order) -> T) -> T {
+        if self.state.is_none() {
+            let value = Order::new(self._id.id.clone(), "".to_string());
+            self.state = Some(value);
+        }
+
+        f(self.state.as_mut().unwrap())
+    }
 }
 
 #[agent_implementation]
@@ -144,6 +275,55 @@ impl OrderAgent for OrderAgentImpl {
 
     async fn get_cart(&self) -> Option<Order> {
         self.state.clone()
+    }
+
+    async fn initialize_order(&mut self, data: CreateOrder) -> Result<(), InitOrderError> {
+        self.with_state(|state| {
+            println!(
+                "Initializing order {} for user {}",
+                state.order_id, data.user_id
+            );
+            if state.order_status == OrderStatus::New {
+                state.user_id = data.user_id;
+                state.email = data.email;
+                state.items = data.items;
+                state.billing_address = data.billing_address;
+                state.shipping_address = data.shipping_address;
+                state.total = data.total;
+                state.currency = data.currency;
+
+                Ok(())
+            } else {
+                Err(InitOrderError::ActionNotAllowed(action_not_allowed_error(
+                    state.order_status,
+                )))
+            }
+        })
+    }
+
+    async fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError> {
+        self.with_state(|state| {
+            println!(
+                "Updating email {} for the order {} of user {}",
+                email, state.order_id, state.user_id
+            );
+
+            if state.order_status == OrderStatus::New {
+                match EmailAddress::from_str(email.as_str()) {
+                    Ok(_) => {
+                        state.set_email(email);
+                        Ok(())
+                    }
+                    Err(e) => Err(UpdateEmailError::EmailNotValid(EmailNotValidError {
+                        message: format!("Invalid email: {e}"),
+                    })),
+                }
+            } else {
+                Err(UpdateEmailError::ActionNotAllowed(
+                    action_not_allowed_error(state.order_status),
+                ))
+            }
+        })
     }
 }
 
