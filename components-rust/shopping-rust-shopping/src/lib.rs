@@ -1,3 +1,10 @@
+mod product;
+mod pricing;
+mod common;
+mod cart;
+mod order;
+mod product_search;
+
 use golem_rust::{Schema, agent_definition, agent_implementation};
 
 #[agent_definition]
