@@ -191,15 +191,11 @@ fn merge_items(updates: Vec<PricingItem>, current: Vec<PricingItem>) -> Vec<Pric
 #[agent_definition]
 trait PricingAgent {
     fn new(init: PricingAgentId) -> Self;
-    async fn get_pricing(&self) -> Option<Pricing>;
+    fn get_pricing(&self) -> Option<Pricing>;
 
-    async fn get_price(&self, currency: String, zone: String) -> Option<PricingItem>;
-    
-    async fn initialize_pricing(
-        &mut self,
-        msrp_prices: Vec<PricingItem>,
-        list_prices: Vec<PricingItem>,
-    );
+    fn get_price(&self, currency: String, zone: String) -> Option<PricingItem>;
+
+    fn initialize_pricing(&mut self, msrp_prices: Vec<PricingItem>, list_prices: Vec<PricingItem>);
 }
 
 struct PricingAgentImpl {
@@ -216,22 +212,18 @@ impl PricingAgent for PricingAgentImpl {
         }
     }
 
-    async fn get_price(&self, currency: String, zone: String) -> Option<PricingItem> {
+    fn get_price(&self, currency: String, zone: String) -> Option<PricingItem> {
         println!("Getting pricing for currency: {} zone: {}", currency, zone);
         self.state
             .clone()
             .and_then(|pricing| pricing.get_price(currency, zone))
     }
 
-    async fn get_pricing(&self) -> Option<Pricing> {
+    fn get_pricing(&self) -> Option<Pricing> {
         self.state.clone()
     }
 
-    async fn initialize_pricing(
-        &mut self,
-        msrp_prices: Vec<PricingItem>,
-        list_prices: Vec<PricingItem>,
-    ) {
+    fn initialize_pricing(&mut self, msrp_prices: Vec<PricingItem>, list_prices: Vec<PricingItem>) {
         self.state = Some(Pricing {
             msrp_prices,
             list_prices,
@@ -241,6 +233,12 @@ impl PricingAgent for PricingAgentImpl {
 }
 
 #[derive(Schema)]
-struct PricingAgentId {
+pub struct PricingAgentId {
     id: String,
+}
+
+impl PricingAgentId {
+    pub fn new(id: String) -> Self {
+        PricingAgentId { id }
+    }
 }

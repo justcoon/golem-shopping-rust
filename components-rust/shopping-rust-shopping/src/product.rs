@@ -14,9 +14,10 @@ pub struct Product {
 #[agent_definition]
 trait ProductAgent {
     fn new(init: ProductAgentId) -> Self;
-    async fn get_product(&self) -> Option<Product>;
 
-    async fn initialize_product(
+    fn get_product(&self) -> Option<Product>;
+
+    fn initialize_product(
         &mut self,
         name: String,
         brand: String,
@@ -39,11 +40,11 @@ impl ProductAgent for ProductAgentImpl {
         }
     }
 
-    async fn get_product(&self) -> Option<Product> {
+    fn get_product(&self) -> Option<Product> {
         self.state.clone()
     }
 
-    async fn initialize_product(
+    fn initialize_product(
         &mut self,
         name: String,
         brand: String,
@@ -61,6 +62,12 @@ impl ProductAgent for ProductAgentImpl {
 }
 
 #[derive(Schema)]
-struct ProductAgentId {
+pub struct ProductAgentId {
     id: String,
+}
+
+impl ProductAgentId {
+    pub fn new(id: String) -> Self {
+        ProductAgentId { id }
+    }
 }

@@ -1,4 +1,5 @@
-use crate::product::Product;
+use crate::product::{Product, ProductAgentClient, ProductAgentId};
+use futures::future::join_all;
 use golem_rust::bindings::golem::api::host::resolve_component_id;
 use golem_rust::golem_agentic::golem::api::host::{
     AgentAllFilter, AgentAnyFilter, AgentNameFilter, AgentPropertyFilter, GetAgents,
@@ -8,7 +9,6 @@ use golem_rust::wasm_rpc::ComponentId;
 use golem_rust::{agent_definition, agent_implementation, Schema};
 use regex::Regex;
 use std::collections::HashSet;
-
 
 #[derive(Clone, Debug)]
 struct ProductQueryMatcher {
@@ -110,7 +110,6 @@ impl ProductQueryMatcher {
     }
 }
 
-
 fn get_agent_filter() -> AgentAnyFilter {
     AgentAnyFilter {
         filters: vec![AgentAllFilter {
@@ -131,10 +130,29 @@ fn get_product_agent_id(agent_name: &str) -> Option<String> {
 }
 
 async fn get_products(
-    workers: HashSet<String>,
+    agent_ids: HashSet<String>,
     matcher: ProductQueryMatcher,
 ) -> Result<Vec<Product>, String> {
-    Result::Ok(vec![])
+    let mut result: Vec<Product> = vec![];
+
+    let clients: Vec<ProductAgentClient> = agent_ids
+        .into_iter()
+        .map(|agent_id| ProductAgentClient::get(ProductAgentId::new(agent_id.to_string())))
+        .collect();
+
+    let tasks: Vec<_> = clients.iter().map(|client| client.get_product()).collect();
+
+    let responses = join_all(tasks).await;
+
+    for response in responses {
+        if let Some(product) = response {
+            if matcher.matches(product.clone()) {
+                result.push(product);
+            }
+        }
+    }
+
+    Result::Ok(result)
 }
 
 #[agent_definition(mode = "ephemeral")]

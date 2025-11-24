@@ -3,7 +3,6 @@ use golem_rust::Schema;
 pub const CURRENCY_DEFAULT: &str = "USD";
 pub const PRICING_ZONE_DEFAULT: &str = "global";
 
-
 #[derive(Schema, Clone)]
 pub struct Address {
     pub street: String,
@@ -14,3 +13,9 @@ pub struct Address {
     pub name: Option<String>,
     pub phone_number: Option<String>,
 }
+
+// #[derive(Schema, Clone)]
+// pub struct Test {
+//     pub id2: uuid::Uuid,
+//     pub date: chrono::DateTime<chrono::Utc>
+// }
