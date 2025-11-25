@@ -14,7 +14,7 @@ pub struct Product {
 
 #[agent_definition]
 trait ProductAgent {
-    fn new(init: ProductAgentId) -> Self;
+    fn new(init: String) -> Self;
 
     fn get_product(&self) -> Option<Product>;
 
@@ -28,13 +28,13 @@ trait ProductAgent {
 }
 
 struct ProductAgentImpl {
-    _id: ProductAgentId,
+    _id: String,
     state: Option<Product>,
 }
 
 #[agent_implementation]
 impl ProductAgent for ProductAgentImpl {
-    fn new(id: ProductAgentId) -> Self {
+    fn new(id: String) -> Self {
         ProductAgentImpl {
             _id: id,
             state: None,
@@ -54,7 +54,7 @@ impl ProductAgent for ProductAgentImpl {
     ) {
         let now = Datetime::now();
         self.state = Some(Product {
-            product_id: self._id.id.clone(),
+            product_id: self._id.clone(),
             name,
             brand,
             description,
@@ -62,16 +62,5 @@ impl ProductAgent for ProductAgentImpl {
             created_at: now,
             updated_at: now,
         });
-    }
-}
-
-#[derive(Schema)]
-pub struct ProductAgentId {
-    id: String,
-}
-
-impl ProductAgentId {
-    pub fn new(id: String) -> Self {
-        ProductAgentId { id }
     }
 }

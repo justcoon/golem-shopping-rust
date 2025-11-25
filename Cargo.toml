@@ -1,13 +1,14 @@
 [workspace]
 resolver = "2"
 members = ["components-rust/*", "common-rust/*"]
+exclude = [ "benchmark" ]
 
 [profile.release]
 opt-level = "s"
 lto = true
 
 [workspace.dependencies]
-golem-rust = { version = "1.9.1", features = ["export_load_snapshot", "export_save_snapshot", "export_golem_agentic"] }
+golem-rust = { version = "1.9.2", features = ["export_load_snapshot", "export_save_snapshot", "export_golem_agentic", "golem_ai" ] }
 golem-wasi-http = { version = "0.1.0", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
