@@ -150,15 +150,40 @@ pub struct ItemNotFoundError {
     pub message: String,
     pub product_id: String,
 }
+impl ItemNotFoundError {
+    fn new(product_id: String) -> ItemNotFoundError {
+        ItemNotFoundError {
+            message: "Item not found".to_string(),
+            product_id,
+        }
+    }
+}
 #[derive(Schema, Clone)]
 pub struct PricingNotFoundError {
     pub message: String,
     pub product_id: String,
 }
+impl PricingNotFoundError {
+    fn new(product_id: String) -> PricingNotFoundError {
+        PricingNotFoundError {
+            message: "Pricing not found".to_string(),
+            product_id,
+        }
+    }
+}
 #[derive(Schema, Clone)]
 pub struct ProductNotFoundError {
     pub message: String,
     pub product_id: String,
+}
+
+impl ProductNotFoundError {
+    fn new(product_id: String) -> ProductNotFoundError {
+        ProductNotFoundError {
+            message: "Product not found".to_string(),
+            product_id,
+        }
+    }
 }
 #[derive(Schema, Clone)]
 pub struct EmailNotValidError {
@@ -240,26 +265,6 @@ fn generate_order_id() -> String {
     Uuid::new_v4().to_string()
 }
 
-fn item_not_found_error(product_id: String) -> ItemNotFoundError {
-    ItemNotFoundError {
-        message: "Item not found".to_string(),
-        product_id,
-    }
-}
-
-fn pricing_not_found_error(product_id: String) -> PricingNotFoundError {
-    PricingNotFoundError {
-        message: "Pricing not found".to_string(),
-        product_id,
-    }
-}
-
-fn product_not_found_error(product_id: String) -> ProductNotFoundError {
-    ProductNotFoundError {
-        message: "Product not found".to_string(),
-        product_id,
-    }
-}
 fn get_cart_item(product: Product, pricing: PricingItem, quantity: u32) -> CartItem {
     CartItem {
         product_id: product.product_id,
@@ -412,12 +417,12 @@ impl CartAgent for CartAgentImpl {
                     state.add_item(get_cart_item(product, pricing, quantity));
                 }
                 (None, _) => {
-                    return Err(AddItemError::ProductNotFound(product_not_found_error(
+                    return Err(AddItemError::ProductNotFound(ProductNotFoundError::new(
                         product_id,
                     )));
                 }
                 _ => {
-                    return Err(AddItemError::PricingNotFound(pricing_not_found_error(
+                    return Err(AddItemError::PricingNotFound(PricingNotFoundError::new(
                         product_id,
                     )))
                 }
@@ -478,7 +483,7 @@ impl CartAgent for CartAgentImpl {
             if state.remove_item(product_id.clone()) {
                 Ok(())
             } else {
-                Err(RemoveItemError::ItemNotFound(item_not_found_error(
+                Err(RemoveItemError::ItemNotFound(ItemNotFoundError::new(
                     product_id,
                 )))
             }
@@ -513,9 +518,9 @@ impl CartAgent for CartAgentImpl {
             if updated {
                 Ok(())
             } else {
-                Err(UpdateItemQuantityError::ItemNotFound(item_not_found_error(
-                    product_id,
-                )))
+                Err(UpdateItemQuantityError::ItemNotFound(
+                    ItemNotFoundError::new(product_id),
+                ))
             }
         })
     }

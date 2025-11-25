@@ -1,4 +1,3 @@
-use crate::product::Product;
 use golem_rust::{agent_definition, agent_implementation, Schema};
 use std::collections::HashMap;
 

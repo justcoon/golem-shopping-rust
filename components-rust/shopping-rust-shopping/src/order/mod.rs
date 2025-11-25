@@ -131,21 +131,60 @@ pub struct ActionNotAllowedError {
     pub status: OrderStatus,
 }
 
+impl ActionNotAllowedError {
+    fn new(status: OrderStatus) -> ActionNotAllowedError {
+        ActionNotAllowedError {
+            message: "Can not update order with status".to_string(),
+            status: status.into(),
+        }
+    }
+}
+
 #[derive(Schema, Clone)]
 pub struct ItemNotFoundError {
     pub message: String,
     pub product_id: String,
 }
+
+impl ItemNotFoundError {
+    fn new(product_id: String) -> ItemNotFoundError {
+        ItemNotFoundError {
+            message: "Item not found".to_string(),
+            product_id,
+        }
+    }
+}
+
 #[derive(Schema, Clone)]
 pub struct PricingNotFoundError {
     pub message: String,
     pub product_id: String,
 }
+
+impl PricingNotFoundError {
+    fn new(product_id: String) -> PricingNotFoundError {
+        PricingNotFoundError {
+            message: "Pricing not found".to_string(),
+            product_id,
+        }
+    }
+}
+
 #[derive(Schema, Clone)]
 pub struct ProductNotFoundError {
     pub message: String,
     pub product_id: String,
 }
+
+impl ProductNotFoundError {
+    fn new(product_id: String) -> ProductNotFoundError {
+        ProductNotFoundError {
+            message: "Product not found".to_string(),
+            product_id,
+        }
+    }
+}
+
 #[derive(Schema, Clone)]
 pub struct EmailNotValidError {
     pub message: String,
@@ -206,34 +245,6 @@ pub enum InitOrderError {
 pub enum UpdateAddressError {
     AddressNotValid(AddressNotValidError),
     ActionNotAllowed(ActionNotAllowedError),
-}
-
-fn action_not_allowed_error(status: OrderStatus) -> ActionNotAllowedError {
-    ActionNotAllowedError {
-        message: "Can not update order with status".to_string(),
-        status: status.into(),
-    }
-}
-
-fn item_not_found_error(product_id: String) -> ItemNotFoundError {
-    ItemNotFoundError {
-        message: "Item not found".to_string(),
-        product_id,
-    }
-}
-
-fn pricing_not_found_error(product_id: String) -> PricingNotFoundError {
-    PricingNotFoundError {
-        message: "Pricing not found".to_string(),
-        product_id,
-    }
-}
-
-fn product_not_found_error(product_id: String) -> ProductNotFoundError {
-    ProductNotFoundError {
-        message: "Product not found".to_string(),
-        product_id,
-    }
 }
 
 pub fn get_total_price(items: Vec<OrderItem>) -> f32 {
@@ -314,9 +325,9 @@ impl OrderAgent for OrderAgentImpl {
 
                 Ok(())
             } else {
-                Err(InitOrderError::ActionNotAllowed(action_not_allowed_error(
-                    state.order_status,
-                )))
+                Err(InitOrderError::ActionNotAllowed(
+                    ActionNotAllowedError::new(state.order_status),
+                ))
             }
         })
     }
@@ -340,7 +351,7 @@ impl OrderAgent for OrderAgentImpl {
                 }
             } else {
                 Err(UpdateEmailError::ActionNotAllowed(
-                    action_not_allowed_error(state.order_status),
+                    ActionNotAllowedError::new(state.order_status),
                 ))
             }
         })
@@ -374,12 +385,12 @@ impl OrderAgent for OrderAgentImpl {
                     });
                 }
                 (None, _) => {
-                    return Err(AddItemError::ProductNotFound(product_not_found_error(
+                    return Err(AddItemError::ProductNotFound(ProductNotFoundError::new(
                         product_id,
                     )));
                 }
                 _ => {
-                    return Err(AddItemError::PricingNotFound(pricing_not_found_error(
+                    return Err(AddItemError::PricingNotFound(PricingNotFoundError::new(
                         product_id,
                     )))
                 }
@@ -398,14 +409,14 @@ impl OrderAgent for OrderAgentImpl {
                 if state.remove_item(product_id.clone()) {
                     Ok(())
                 } else {
-                    Err(RemoveItemError::ItemNotFound(item_not_found_error(
+                    Err(RemoveItemError::ItemNotFound(ItemNotFoundError::new(
                         product_id,
                     )))
                 }
             } else {
-                Err(RemoveItemError::ActionNotAllowed(action_not_allowed_error(
-                    state.order_status,
-                )))
+                Err(RemoveItemError::ActionNotAllowed(
+                    ActionNotAllowedError::new(state.order_status),
+                ))
             }
         })
     }
@@ -421,7 +432,7 @@ impl OrderAgent for OrderAgentImpl {
                 Ok(())
             } else {
                 Err(UpdateAddressError::ActionNotAllowed(
-                    action_not_allowed_error(state.order_status),
+                    ActionNotAllowedError::new(state.order_status),
                 ))
             }
         })
@@ -443,13 +454,13 @@ impl OrderAgent for OrderAgentImpl {
                 if updated {
                     Ok(())
                 } else {
-                    Err(UpdateItemQuantityError::ItemNotFound(item_not_found_error(
-                        product_id,
-                    )))
+                    Err(UpdateItemQuantityError::ItemNotFound(
+                        ItemNotFoundError::new(product_id),
+                    ))
                 }
             } else {
                 Err(UpdateItemQuantityError::ActionNotAllowed(
-                    action_not_allowed_error(state.order_status),
+                    ActionNotAllowedError::new(state.order_status),
                 ))
             }
         })
@@ -466,7 +477,7 @@ impl OrderAgent for OrderAgentImpl {
                 Ok(())
             } else {
                 Err(UpdateAddressError::ActionNotAllowed(
-                    action_not_allowed_error(state.order_status),
+                    ActionNotAllowedError::new(state.order_status),
                 ))
             }
         })
@@ -479,9 +490,9 @@ impl OrderAgent for OrderAgentImpl {
                 state.order_id, state.user_id
             );
             if state.order_status != OrderStatus::New {
-                Err(ShipOrderError::ActionNotAllowed(action_not_allowed_error(
-                    state.order_status,
-                )))
+                Err(ShipOrderError::ActionNotAllowed(
+                    ActionNotAllowedError::new(state.order_status),
+                ))
             } else if state.items.is_empty() {
                 Err(ShipOrderError::EmptyItems(EmptyItemsError {
                     message: "Empty items".to_string(),
@@ -523,7 +534,7 @@ impl OrderAgent for OrderAgentImpl {
                     state.order_id, state.user_id
                 );
                 Err(CancelOrderError::ActionNotAllowed(
-                    action_not_allowed_error(state.order_status),
+                    ActionNotAllowedError::new(state.order_status),
                 ))
             }
         })
