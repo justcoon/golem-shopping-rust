@@ -1,4 +1,4 @@
-use crate::common::{Address, CURRENCY_DEFAULT, PRICING_ZONE_DEFAULT};
+use crate::common::{Address, Datetime, CURRENCY_DEFAULT, PRICING_ZONE_DEFAULT};
 use crate::order::{CreateOrder, OrderAgentClient, OrderAgentId, OrderItem};
 use crate::pricing::{PricingAgentClient, PricingAgentId, PricingItem};
 use crate::product::{Product, ProductAgentClient, ProductAgentId};
@@ -19,7 +19,7 @@ pub struct Cart {
     pub total: f32,
     pub currency: String,
     pub previous_order_ids: Vec<String>,
-    // pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: Datetime,
 }
 
 impl Cart {
@@ -32,7 +32,7 @@ impl Cart {
             shipping_address: None,
             total: 0.0,
             currency: CURRENCY_DEFAULT.to_string(),
-            // updated_at: chrono::Utc::now(),
+            updated_at: Datetime::now(),
             previous_order_ids: vec![],
         }
     }
@@ -47,12 +47,12 @@ impl Cart {
         self.billing_address = None;
         self.shipping_address = None;
         self.total = 0.0;
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
     fn recalculate_total(&mut self) {
         self.total = get_total_price(self.items.clone());
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
     fn add_item(&mut self, item: CartItem) -> bool {
@@ -68,17 +68,17 @@ impl Cart {
 
     fn set_billing_address(&mut self, address: Address) {
         self.billing_address = Some(address);
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
     fn set_shipping_address(&mut self, address: Address) {
         self.shipping_address = Some(address);
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
     fn set_email(&mut self, email: String) {
         self.email = Some(email);
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
     fn update_item_quantity(&mut self, product_id: String, quantity: u32) -> bool {

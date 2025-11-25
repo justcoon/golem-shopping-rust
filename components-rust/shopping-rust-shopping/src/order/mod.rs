@@ -1,4 +1,4 @@
-use crate::common::{Address, CURRENCY_DEFAULT, PRICING_ZONE_DEFAULT};
+use crate::common::{Address, Datetime, CURRENCY_DEFAULT, PRICING_ZONE_DEFAULT};
 use crate::pricing::{PricingAgentClient, PricingAgentId};
 use crate::product::{ProductAgentClient, ProductAgentId};
 use email_address::EmailAddress;
@@ -17,13 +17,13 @@ pub struct Order {
     pub shipping_address: Option<Address>,
     pub total: f32,
     pub currency: String,
-    // pub created_at: chrono::DateTime<chrono::Utc>,
-    // pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: Datetime,
+    pub updated_at: Datetime,
 }
 
 impl Order {
     fn new(order_id: String, user_id: String) -> Self {
-        // let now = chrono::Utc::now();
+        let now = Datetime::now();
         Self {
             order_id,
             user_id,
@@ -34,34 +34,34 @@ impl Order {
             billing_address: None,
             total: 0f32,
             currency: CURRENCY_DEFAULT.to_string(),
-            // created_at: now,
-            // updated_at: now,
+            created_at: now,
+            updated_at: now,
         }
     }
 
     fn recalculate_total(&mut self) {
         self.total = get_total_price(self.items.clone());
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
     fn set_billing_address(&mut self, address: Address) {
         self.billing_address = Some(address);
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
     fn set_shipping_address(&mut self, address: Address) {
         self.shipping_address = Some(address);
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
     fn set_email(&mut self, email: String) {
         self.email = Some(email);
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
     fn set_order_status(&mut self, status: OrderStatus) {
         self.order_status = status;
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
     fn add_item(&mut self, item: OrderItem) -> bool {
