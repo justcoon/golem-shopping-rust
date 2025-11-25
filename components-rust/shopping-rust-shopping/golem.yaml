@@ -14,27 +14,235 @@
 # Field reference: https://learn.golem.cloud/app-manifest#field-reference
 # Creating HTTP APIs: https://learn.golem.cloud/invoke/making-custom-apis
 
-#httpApi:
-#  definitions:
-#    shopping-rust-shopping-api:
-#      version: '0.0.1'
-#      routes:
-#        - method: POST
-#          path: /shopping-rust-shopping-api/{name}/increment
+httpApi:
+  definitions:
+    shopping-rust-shopping-api:
+      version: '0.0.1'
+      routes:
+        - method: GET
+          path: "/v1/pricing/{product-id}"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: |-
+              let id: string = request.path.product-id;
+              let agent = pricing-agent(id);
+              let result = agent.get-pricing();
+              match result {  some(x) => {status: 200u64, body: ok(x) }, none => {status: 404u64, body: err({message: "not found"})} }
+        - method: POST
+          path: "/v1/pricing/{product-id}"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: |-
+              let id: string = request.path.product-id;
+              let agent = pricing-agent(id);
+              agent.initialize-pricing(request.body.msrp-prices, request.body.list-prices, request.body.sale-prices);
+              {status: 200u64, body: {message: "created"}}
+#        - method: PATCH
+#          path: "/v1/pricing/{product-id}"
 #          binding:
 #            type: default
 #            componentName: shopping-rust:shopping
-#            response: |
-#              let name: string = request.path.name;
-#              let agent = counter-agent(name);
-#              let new-value = agent.increment();
-#              { status: 200, body: { result: "incremented ${name}, new value is ${new-value}" } }
-#
-#  deployments:
-#    local:
-#      - host: localhost:9006
-#        definitions:
-#          - shopping-rust-shopping-api
+#            response: |-
+#              let id: string = request.path.product-id;
+#              let agent = pricing-agent(id);
+#              agent.update-pricing(request.body.msrp-prices, request.body.list-prices, request.body.sale-prices);
+#              {status: 200u64, body: {message: "updated"}}
+        - method: GET
+          path: "/v1/product/search?{query}"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: |-
+              let query: string = request.query.query;
+              let agent = product-search-agent();
+              let result = agent.search(query);
+              match result {  ok(x) => {status: 200u64, body: ok(x)}, err(x) => {status: 400u64, body: err({error: x})} }
+#        - method: GET
+#          path: "/v1/product?{ids}"
+#          binding:
+#            type: default
+#            componentName: shopping-rust:shopping
+#            response: |-
+#              let ids: string = request.query.ids;
+#              let agent = product-search-agent();
+#              let result = agent.get-by-ids(ids);
+#              match result {  ok(x) => {status: 200u64, body: ok(x)}, err(x) => {status: 400u64, body: err({error: x})} }
+        - method: GET
+          path: "/v1/product/{product-id}"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: |-
+              let id: string = request.path.product-id;
+              let agent = product-agent(id);
+              let result = agent.get-product();
+              match result {  some(x) => {status: 200u64, body: ok(x) }, none => {status: 404u64, body: err({message: "not found"})} }
+        - method: POST
+          path: "/v1/product/{product-id}"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: |-
+              let id: string = request.path.product-id;
+              let agent = product-agent(id);
+              let name: string = request.body.name;
+              let brand: string = request.body.brand;
+              let description: string = request.body.description;
+              let tags: list<string> = request.body.tags;
+              agent.initialize-product(name, brand, description, tags);
+              {status: 200u64, body: {message: "created"}}
+        - method: GET
+          path: "/v1/cart/{user-id}"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: |-
+              let id: string = request.path.user-id;
+              let agent = cart-agent(id);
+              let result = agent.get-cart();
+              match result {  some(x) => {status: 200u64, body: ok(x) }, none => {status: 404u64, body: err({message: "not found"})} }
+        - method: PUT
+          path: "/v1/cart/{user-id}/items/{product-id}"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: "let id: string = request.path.user-id;\nlet agent = cart-agent(id);\nlet quantity: f64 = request.body.quantity;\nlet result = agent.add-item(request.path.product-id,
+            quantity);\nmatch result {  ok(_) => {status: 200u64, body: ok({message: \"item
+            added\"})}, err(x) => {status: 400u64, body: err({error: x})} } "
+        - method: POST
+          path: "/v1/cart/{user-id}/checkout"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: "let id: string = request.path.user-id;\nlet agent = cart-agent(id);\nlet result = agent.checkout();\nmatch result {  ok(x)
+            => {status: 200u64, body: ok(x)}, err(x) => {status: 400u64, body: err({error:
+            x})} } "
+        - method: PUT
+          path: "/v1/cart/{user-id}/email"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: "let id: string = request.path.user-id;\nlet agent = cart-agent(id);\nlet email: string = request.body.email;\nlet result = agent.update-email(email);\nmatch
+            result {  ok(_) => {status: 200u64, body: ok({message: \"email set\"})}, err(x)
+            => {status: 400u64, body: err({error: x})} } "
+        - method: PUT
+          path: "/v1/cart/{user-id}/billing-address"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: "let id: string = request.path.user-id;\nlet agent = cart-agent(id);\nlet result = agent.update-billing-address(request.body);\nmatch
+            result {  ok(_) => {status: 200u64, body: ok({message: \"address set\"})}, err(x)
+            => {status: 400u64, body: err({error: x})} } "
+        - method: PUT
+          path: "/v1/cart/{user-id}/shipping-address"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: "let id: string = request.path.user-id;\nlet agent = cart-agent(id);\nlet result = agent.update-shipping-address(request.body);\nmatch
+            result {  ok(_) => {status: 200u64, body: ok({message: \"address set\"})}, err(x)
+            => {status: 400u64, body: err({error: x})} } "
+        - method: DELETE
+          path: "/v1/cart/{user-id}/items/{product-id}"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: "let id: string = request.path.user-id;\nlet agent = cart-agent(id);\nlet result = agent.remove-item(request.path.product-id);\nmatch
+            result {  ok(_) => {status: 200u64, body: ok({message: \"item removed\"})},
+            err(x) => {status: 400u64, body: err({error: x})} } "
+        - method: GET
+          path: "/v1/order/{order-id}"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: |-
+              let id: string = request.path.order-id;
+              let agent = order-agent(id);
+              let result = agent.get-order();
+              match result {  some(x) => {status: 200u64, body: ok(x) }, none => {status: 404u64, body: err({message: "not found"})} }
+        - method: PUT
+          path: "/v1/order/{order-id}/email"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: "let id: string = request.path.order-id;\nlet agent = order-agent(id);\nlet email: string = request.body.email;\nlet result = agent.update-email(email);\nmatch
+            result {  ok(_) => {status: 200u64, body: ok({message: \"email set\"})}, err(x)
+            => {status: 400u64, body: err({error: x})} } "
+        - method: PUT
+          path: "/v1/order/{order-id}/items/{product-id}"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: "let id: string = request.path.order-id;\nlet agent = order-agent(id);\nlet quantity: f64 = request.body.quantity;\nlet result = agent.add-item(request.path.product-id,
+            quantity);\nmatch result {  ok(_) => {status: 200u64, body: ok({message: \"item
+            added\"})}, err(x) => {status: 400u64, body: err({error: x})} } "
+        - method: POST
+          path: "/v1/order/{order-id}/ship-order"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: "let id: string = request.path.order-id;\nlet agent = order-agent(id);\nlet result = agent.ship-order();\nmatch result
+            {  ok(_) => {status: 200u64, body: ok({message: \"order shipped\"})}, err(x)
+            => {status: 400u64, body: err({error: x})} } "
+        - method: POST
+          path: "/v1/order/{order-id}/cancel-order"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: "let id: string = request.path.order-id;\nlet agent = order-agent(id);\nlet result = agent.cancel-order();\nmatch result
+            {  ok(_) => {status: 200u64, body: ok({message: \"order cancelled\"})}, err(x)
+            => {status: 400u64, body: err({error: x})} } "
+        - method: PUT
+          path: "/v1/order/{order-id}/billing-address"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: "let id: string = request.path.order-id;\nlet agent = order-agent(id);\nlet result = agent.update-billing-address(request.body);\nmatch
+            result {  ok(_) => {status: 200u64, body: ok({message: \"address set\"})}, err(x)
+            => {status: 400u64, body: err({error: x})} } "
+        - method: PUT
+          path: "/v1/order/{order-id}/shipping-address"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: "let id: string = request.path.order-id;\nlet agent = order-agent(id);\nlet result = agent.update-shipping-address(request.body);\nmatch
+            result {  ok(_) => {status: 200u64, body: ok({message: \"address set\"})}, err(x)
+            => {status: 400u64, body: err({error: x})} } "
+        - method: DELETE
+          path: "/v1/order/{order-id}/items/{product-id}"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: "let id: string = request.path.order-id;\nlet agent = order-agent(id);\nlet result = agent.remove-item(request.path.product-id);\nmatch
+            result {  ok(_) => {status: 200u64, body: ok({message: \"item removed\"})},
+            err(x) => {status: 400u64, body: err({error: x})} } "
+#        - method: GET
+#          path: "/v1/assistant/{user-id}/recommended-products"
+#          binding:
+#            type: default
+#            componentName: shopping-rust:shopping
+#            response: |-
+#              let id: string = request.path.user-id;
+#              let agent = shopping-assistant-agent(id);
+#              let result = agent.get-recommended-products();
+#              {status: 200u64, body: result }
+        - method: GET
+          path: "/v1/assistant/{user-id}/recommended-items"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: |-
+              let id: string = request.path.user-id;
+              let agent = shopping-assistant-agent(id);
+              let result = agent.get-recommended-items();
+              {status: 200u64, body: result }
+
+  deployments:
+    local:
+      - host: localhost:9006
+        definitions:
+          - shopping-rust-shopping-api
 
 components:
   shopping-rust:shopping:
