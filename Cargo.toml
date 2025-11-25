@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["components-rust/*", "common-rust/*"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+
+[workspace.dependencies]
+golem-rust = { version = "1.9.1", features = ["export_load_snapshot", "export_save_snapshot", "export_golem_agentic"] }
+golem-wasi-http = { version = "0.1.0", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+email_address = "0.2.9"
+uuid = { version = "1.18.1", features = ["v4"] }

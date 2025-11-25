@@ -1,0 +1,113 @@
+@startuml Golem Shopping Architecture
+
+' Define styles
+skinparam componentStyle uml2
+skinparam backgroundColor #F5F5F5
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam roundcorner 10
+skinparam shadowing true
+skinparam ArrowColor #666666
+skinparam ComponentBackgroundColor #E8E8E8
+skinparam ComponentBorderColor #666666
+
+' Define components
+actor "User" as user #FFD700
+
+package "Golem Cloud" {
+    [API Gateway] as gateway #F9E79F
+    [Product Agent] as product #D5F5E3
+    [Pricing Agent] as pricing #D6EAF8
+    [Cart Agent] as cart #FADBD8
+    [Order Agent] as order #E8DAEF
+    [Product Search Agent] as product_search #D1F2EB
+    [Shopping Assistant] as assistant #E8F8F5
+}
+
+' Define relationships
+user --> gateway : "HTTP Requests\n(REST API Calls)"
+
+gateway --> product : "RPC\nProduct API"
+gateway --> pricing : "RPC\nPricing API"
+gateway --> cart : "RPC\nCart API"
+gateway --> order : "RPC\nOrder API"
+gateway --> product_search : "RPC\nProduct Search API"
+gateway --> assistant : "RPC\nAssistant API"
+
+' Agent-to-agent communication
+cart --> product : "RPC\nGet product info"
+cart --> pricing : "RPC\nGet pricing info"
+cart --> order : "RPC\nCreate order from cart"
+order --> product : "RPC\nGet product info"
+order --> pricing : "RPC\nGet pricing info"
+product_search --> product : "RPC\nGet product info"
+
+' Shopping Assistant relationships
+assistant --> cart : "RPC\nGet order history"
+assistant --> order : "RPC\nGet orders"
+assistant --> product : "RPC\nGet product details"
+
+' Add notes
+note right of gateway
+  <b>API Gateway</b>
+  - Routes REST API to agents
+  • /v1/products/** → Product Agent
+  • /v1/pricing/** → Pricing Agent
+  • /v1/cart/** → Cart Agent
+  • /v1/orders/** → Order Agent
+  • /v1/assistant/** → Shopping Assistant Agent
+  • /v1/product/search → Product Search Agent
+  - Transforms REST to Golem RPC
+end note
+
+note right of product
+  <b>Product Agent</b>
+  - Manages product catalog
+  - State managed by Golem Cloud
+end note
+
+note right of pricing
+  <b>Pricing Agent</b>
+  - Manages product pricing
+  - Handles discounts/promotions
+  - State managed by Golem Cloud
+end note
+
+note right of cart
+  <b>Cart Agent</b>
+  - Manages user shopping carts
+  - One cart per user
+  - Converts to order on checkout
+  - State managed by Golem Cloud
+end note
+
+note right of order
+  <b>Order Agent</b>
+  - Manages order lifecycle
+  - Handles order processing
+  - State management (New/Shipped/Cancelled)
+  - State managed by Golem Cloud
+end note
+
+note right of product_search
+  <b>Product Search Agent</b>
+  - Agent per request
+  - Gets product info from Product Agents
+  - No persistent state
+end note
+
+' External Services
+[AI/LLM Service] as llm #D6EAF8
+
+' Connect LLM to Shopping Assistant
+assistant --> llm : "API Call"
+
+note right of assistant
+  <b>Shopping Assistant</b>
+  - Provides AI-powered shopping assistance
+  - Can search and recommend products
+  - Can manage cart items
+  - State managed by Golem Cloud
+end note
+
+@enduml
