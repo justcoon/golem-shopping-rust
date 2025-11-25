@@ -1,12 +1,11 @@
-use crate::product::{Product, ProductAgentClient, ProductAgentId};
+use crate::product::{Product, ProductAgentClient};
 use futures::future::join_all;
-use golem_rust::bindings::golem::api::host::resolve_component_id;
-use golem_rust::golem_agentic::golem::api::host::{
-    AgentAllFilter, AgentAnyFilter, AgentNameFilter, AgentPropertyFilter, GetAgents,
-    StringFilterComparator,
+use golem_rust::bindings::golem::api::host::{
+    resolve_component_id, AgentAllFilter, AgentAnyFilter, AgentNameFilter, AgentPropertyFilter,
+    GetAgents, StringFilterComparator,
 };
 use golem_rust::wasm_rpc::ComponentId;
-use golem_rust::{agent_definition, agent_implementation, Schema};
+use golem_rust::{agent_definition, agent_implementation};
 use regex::Regex;
 use std::collections::HashSet;
 
@@ -69,14 +68,19 @@ impl ProductQueryMatcher {
     }
 
     // Check if a product matches the query
-    pub fn matches(&self, product: Product) -> bool {
+    fn matches(&self, product: Product) -> bool {
         fn text_matches(text: &str, query: &str) -> bool {
             query == "*" || text.to_lowercase().contains(&query.to_lowercase())
+        }
+
+        fn text_exact_matches(text: &str, query: &str) -> bool {
+            query == "*" || text == query
         }
 
         // Check field filters first
         for (field, value) in self.field_filters.iter() {
             let matches = match field.to_lowercase().as_str() {
+                "product-id" | "productid" => text_exact_matches(&product.product_id, &value),
                 "name" => text_matches(&product.name, &value),
                 "brand" => text_matches(&product.brand, &value),
                 "description" => text_matches(&product.description, &value),
@@ -122,7 +126,7 @@ fn get_agent_filter() -> AgentAnyFilter {
 }
 
 fn get_product_agent_id(agent_name: &str) -> Option<String> {
-    Regex::new(r"product-agent\(([^)]+)\)")
+    Regex::new(r#"product-agent\("([^)]+)"\)"#)
         .ok()?
         .captures(agent_name)
         .filter(|caps| caps.len() > 0)
@@ -135,7 +139,7 @@ async fn get_products(
 ) -> Result<Vec<Product>, String> {
     let clients: Vec<ProductAgentClient> = agent_ids
         .into_iter()
-        .map(|agent_id| ProductAgentClient::get(ProductAgentId::new(agent_id.to_string())))
+        .map(|agent_id| ProductAgentClient::get(agent_id.to_string()))
         .collect();
 
     let tasks: Vec<_> = clients.iter().map(|client| client.get_product()).collect();
@@ -153,28 +157,26 @@ async fn get_products(
 
 #[agent_definition(mode = "ephemeral")]
 trait ProductSearchAgent {
-    fn new(init: ProductSearchAgentId) -> Self;
+    fn new() -> Self;
 
     async fn search(&self, query: String) -> Result<Vec<Product>, String>;
 }
 
 struct ProductSearchAgentImpl {
-    _id: ProductSearchAgentId,
     component_id: Option<ComponentId>,
 }
 
 #[agent_implementation]
 impl ProductSearchAgent for ProductSearchAgentImpl {
-    fn new(id: ProductSearchAgentId) -> Self {
+    fn new() -> Self {
         let component_id = resolve_component_id("shopping-rust:shopping");
-        ProductSearchAgentImpl {
-            _id: id,
-            component_id,
-        }
+        ProductSearchAgentImpl { component_id }
     }
 
     async fn search(&self, query: String) -> Result<Vec<Product>, String> {
         if let Some(component_id) = self.component_id {
+            println!("searching for products - query: {}", query);
+
             let mut values: Vec<Product> = Vec::new();
             let matcher = ProductQueryMatcher::new(&query);
 
@@ -201,9 +203,4 @@ impl ProductSearchAgent for ProductSearchAgentImpl {
             Err("Component not found".to_string())
         }
     }
-}
-
-#[derive(Schema)]
-struct ProductSearchAgentId {
-    id: String,
 }

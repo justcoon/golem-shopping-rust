@@ -108,7 +108,7 @@ httpApi:
           binding:
             type: default
             componentName: shopping-rust:shopping
-            response: "let id: string = request.path.user-id;\nlet agent = cart-agent(id);\nlet quantity: f64 = request.body.quantity;\nlet result = agent.add-item(request.path.product-id,
+            response: "let id: string = request.path.user-id;\nlet agent = cart-agent(id);\nlet quantity: u32 = request.body.quantity;\nlet result = agent.add-item(request.path.product-id,
             quantity);\nmatch result {  ok(_) => {status: 200u64, body: ok({message: \"item
             added\"})}, err(x) => {status: 400u64, body: err({error: x})} } "
         - method: POST
@@ -174,7 +174,7 @@ httpApi:
           binding:
             type: default
             componentName: shopping-rust:shopping
-            response: "let id: string = request.path.order-id;\nlet agent = order-agent(id);\nlet quantity: f64 = request.body.quantity;\nlet result = agent.add-item(request.path.product-id,
+            response: "let id: string = request.path.order-id;\nlet agent = order-agent(id);\nlet quantity: u32 = request.body.quantity;\nlet result = agent.add-item(request.path.product-id,
             quantity);\nmatch result {  ok(_) => {status: 200u64, body: ok({message: \"item
             added\"})}, err(x) => {status: 400u64, body: err({error: x})} } "
         - method: POST
@@ -268,7 +268,7 @@ components:
     # OPENAI_API_KEY: "<KEY>"
 
     ## OpenRouter
-    # OPENROUTER_API_KEY: "<KEY>"
+      OPENROUTER_API_KEY:  '{{ OPENROUTER_KEY }}'
 
     ## Amazon Bedrock
     # AWS_ACCESS_KEY_ID: "<KEY>"
@@ -413,8 +413,8 @@ dependencies:
   #   url: https://github.com/golemcloud/golem-ai/releases/download/v0.4.0-dev.1/golem_llm_openai-dev.wasm
 
   ## OpenRouter
-  # - type: wasm
-  #   url: https://github.com/golemcloud/golem-ai/releases/download/v0.4.0-dev.1/golem_llm_openrouter-dev.wasm
+   - type: wasm
+     url: https://github.com/golemcloud/golem-ai/releases/download/v0.4.0-dev.1/golem_llm_openrouter-dev.wasm
 
   ## Amazon Bedrock
   # - type: wasm

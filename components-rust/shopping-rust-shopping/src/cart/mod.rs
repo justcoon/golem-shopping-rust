@@ -1,8 +1,8 @@
-use crate::common::{Address, CURRENCY_DEFAULT, PRICING_ZONE_DEFAULT};
-use crate::order::{CreateOrder, OrderAgentClient, OrderAgentId, OrderItem};
-use crate::pricing::{PricingAgentClient, PricingAgentId, PricingItem};
-use crate::product::{Product, ProductAgentClient, ProductAgentId};
-use crate::shopping_assistant::{ShoppingAssistantAgentClient, ShoppingAssistantAgentId};
+use crate::common::{Address, Datetime, CURRENCY_DEFAULT, PRICING_ZONE_DEFAULT};
+use crate::order::{CreateOrder, OrderAgentClient, OrderItem};
+use crate::pricing::{PricingAgentClient, PricingItem};
+use crate::product::{Product, ProductAgentClient};
+use crate::shopping_assistant::ShoppingAssistantAgentClient;
 use email_address::EmailAddress;
 use futures::future::join;
 use golem_rust::{agent_definition, agent_implementation, Schema};
@@ -19,11 +19,11 @@ pub struct Cart {
     pub total: f32,
     pub currency: String,
     pub previous_order_ids: Vec<String>,
-    // pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: Datetime,
 }
 
 impl Cart {
-    pub fn new(user_id: String) -> Self {
+    fn new(user_id: String) -> Self {
         Self {
             user_id,
             email: None,
@@ -32,56 +32,56 @@ impl Cart {
             shipping_address: None,
             total: 0.0,
             currency: CURRENCY_DEFAULT.to_string(),
-            // updated_at: chrono::Utc::now(),
+            updated_at: Datetime::now(),
             previous_order_ids: vec![],
         }
     }
 
-    pub fn order_created(&mut self, order_id: String) {
+    fn order_created(&mut self, order_id: String) {
         self.clear();
         self.previous_order_ids.push(order_id);
     }
 
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.items.clear();
         self.billing_address = None;
         self.shipping_address = None;
         self.total = 0.0;
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
-    pub fn recalculate_total(&mut self) {
+    fn recalculate_total(&mut self) {
         self.total = get_total_price(self.items.clone());
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
-    pub fn add_item(&mut self, item: CartItem) -> bool {
+    fn add_item(&mut self, item: CartItem) -> bool {
         self.items.push(item);
         self.recalculate_total();
         true
     }
 
-    pub fn set_items(&mut self, items: Vec<CartItem>) {
+    fn set_items(&mut self, items: Vec<CartItem>) {
         self.items = items;
         self.recalculate_total();
     }
 
-    pub fn set_billing_address(&mut self, address: Address) {
+    fn set_billing_address(&mut self, address: Address) {
         self.billing_address = Some(address);
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
-    pub fn set_shipping_address(&mut self, address: Address) {
+    fn set_shipping_address(&mut self, address: Address) {
         self.shipping_address = Some(address);
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
-    pub fn set_email(&mut self, email: String) {
+    fn set_email(&mut self, email: String) {
         self.email = Some(email);
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
-    pub fn update_item_quantity(&mut self, product_id: String, quantity: u32) -> bool {
+    fn update_item_quantity(&mut self, product_id: String, quantity: u32) -> bool {
         let mut updated = false;
 
         for item in &mut self.items {
@@ -98,7 +98,7 @@ impl Cart {
         updated
     }
 
-    pub fn remove_item(&mut self, product_id: String) -> bool {
+    fn remove_item(&mut self, product_id: String) -> bool {
         let exist = self.items.iter().any(|item| item.product_id == product_id);
 
         if exist {
@@ -302,7 +302,7 @@ async fn create_order(order_id: String, cart: Cart) -> Result<String, CheckoutEr
 
     let order = cart.into();
 
-    OrderAgentClient::get(OrderAgentId::new(order_id.clone()))
+    OrderAgentClient::get(order_id.clone())
         .initialize_order(order)
         .await
         .map_err(|_| {
@@ -316,7 +316,7 @@ async fn create_order(order_id: String, cart: Cart) -> Result<String, CheckoutEr
 
 #[agent_definition]
 trait CartAgent {
-    fn new(init: CartAgentId) -> Self;
+    fn new(init: String) -> Self;
     async fn get_cart(&mut self) -> Option<Cart>;
     async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError>;
     async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError>;
@@ -333,13 +333,13 @@ trait CartAgent {
 }
 
 struct CartAgentImpl {
-    _id: CartAgentId,
+    _id: String,
     state: Option<Cart>,
 }
 
 impl CartAgentImpl {
     fn get_state(&mut self) -> &mut Cart {
-        self.state.get_or_insert(Cart::new(self._id.id.clone()))
+        self.state.get_or_insert(Cart::new(self._id.clone()))
     }
 
     fn with_state<T>(&mut self, f: impl FnOnce(&mut Cart) -> T) -> T {
@@ -349,7 +349,7 @@ impl CartAgentImpl {
 
 #[agent_implementation]
 impl CartAgent for CartAgentImpl {
-    fn new(id: CartAgentId) -> Self {
+    fn new(id: String) -> Self {
         CartAgentImpl {
             _id: id,
             state: None,
@@ -364,10 +364,8 @@ impl CartAgent for CartAgentImpl {
                 let product_id = item.product_id;
                 let quantity = item.quantity;
 
-                let product_client =
-                    ProductAgentClient::get(ProductAgentId::new(product_id.clone()));
-                let pricing_client =
-                    PricingAgentClient::get(PricingAgentId::new(product_id.clone()));
+                let product_client = ProductAgentClient::get(product_id.clone());
+                let pricing_client = PricingAgentClient::get(product_id.clone());
 
                 let (product, pricing) = join(
                     product_client.get_product(),
@@ -401,8 +399,8 @@ impl CartAgent for CartAgentImpl {
         let updated = state.update_item_quantity(product_id.clone(), quantity);
 
         if !updated {
-            let product_client = ProductAgentClient::get(ProductAgentId::new(product_id.clone()));
-            let pricing_client = PricingAgentClient::get(PricingAgentId::new(product_id.clone()));
+            let product_client = ProductAgentClient::get(product_id.clone());
+            let pricing_client = PricingAgentClient::get(product_id.clone());
 
             let (product, pricing) = join(
                 product_client.get_product(),
@@ -438,8 +436,7 @@ impl CartAgent for CartAgentImpl {
 
         state.order_created(order_id.clone());
 
-        ShoppingAssistantAgentClient::get(ShoppingAssistantAgentId::new(state.user_id.clone()))
-            .trigger_recommend_items();
+        ShoppingAssistantAgentClient::get(state.user_id.clone()).trigger_recommend_items();
 
         Ok(OrderConfirmation { order_id })
     }
@@ -532,16 +529,5 @@ impl CartAgent for CartAgentImpl {
             state.set_shipping_address(address.into());
             Ok(())
         })
-    }
-}
-
-#[derive(Schema)]
-pub struct CartAgentId {
-    id: String,
-}
-
-impl CartAgentId {
-    pub fn new(id: String) -> Self {
-        CartAgentId { id }
     }
 }

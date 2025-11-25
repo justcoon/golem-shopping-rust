@@ -1,6 +1,6 @@
-use crate::common::{Address, CURRENCY_DEFAULT, PRICING_ZONE_DEFAULT};
-use crate::pricing::{PricingAgentClient, PricingAgentId};
-use crate::product::{ProductAgentClient, ProductAgentId};
+use crate::common::{Address, Datetime, CURRENCY_DEFAULT, PRICING_ZONE_DEFAULT};
+use crate::pricing::PricingAgentClient;
+use crate::product::ProductAgentClient;
 use email_address::EmailAddress;
 use futures::future::join;
 use golem_rust::{agent_definition, agent_implementation, Schema};
@@ -17,13 +17,13 @@ pub struct Order {
     pub shipping_address: Option<Address>,
     pub total: f32,
     pub currency: String,
-    // pub created_at: chrono::DateTime<chrono::Utc>,
-    // pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: Datetime,
+    pub updated_at: Datetime,
 }
 
 impl Order {
-    pub fn new(order_id: String, user_id: String) -> Self {
-        // let now = chrono::Utc::now();
+    fn new(order_id: String, user_id: String) -> Self {
+        let now = Datetime::now();
         Self {
             order_id,
             user_id,
@@ -34,43 +34,43 @@ impl Order {
             billing_address: None,
             total: 0f32,
             currency: CURRENCY_DEFAULT.to_string(),
-            // created_at: now,
-            // updated_at: now,
+            created_at: now,
+            updated_at: now,
         }
     }
 
-    pub fn recalculate_total(&mut self) {
+    fn recalculate_total(&mut self) {
         self.total = get_total_price(self.items.clone());
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
-    pub fn set_billing_address(&mut self, address: Address) {
+    fn set_billing_address(&mut self, address: Address) {
         self.billing_address = Some(address);
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
-    pub fn set_shipping_address(&mut self, address: Address) {
+    fn set_shipping_address(&mut self, address: Address) {
         self.shipping_address = Some(address);
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
-    pub fn set_email(&mut self, email: String) {
+    fn set_email(&mut self, email: String) {
         self.email = Some(email);
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
-    pub fn set_order_status(&mut self, status: OrderStatus) {
+    fn set_order_status(&mut self, status: OrderStatus) {
         self.order_status = status;
-        // self.updated_at = chrono::Utc::now();
+        self.updated_at = Datetime::now();
     }
 
-    pub fn add_item(&mut self, item: OrderItem) -> bool {
+    fn add_item(&mut self, item: OrderItem) -> bool {
         self.items.push(item);
         self.recalculate_total();
         true
     }
 
-    pub fn update_item_quantity(&mut self, product_id: String, quantity: u32) -> bool {
+    fn update_item_quantity(&mut self, product_id: String, quantity: u32) -> bool {
         let mut updated = false;
 
         for item in &mut self.items {
@@ -87,7 +87,7 @@ impl Order {
         updated
     }
 
-    pub fn remove_item(&mut self, product_id: String) -> bool {
+    fn remove_item(&mut self, product_id: String) -> bool {
         let exist = self.items.iter().any(|item| item.product_id == product_id);
 
         if exist {
@@ -248,7 +248,7 @@ pub enum UpdateAddressError {
     ActionNotAllowed(ActionNotAllowedError),
 }
 
-pub fn get_total_price(items: Vec<OrderItem>) -> f32 {
+fn get_total_price(items: Vec<OrderItem>) -> f32 {
     let mut total = 0f32;
 
     for item in items {
@@ -260,7 +260,7 @@ pub fn get_total_price(items: Vec<OrderItem>) -> f32 {
 
 #[agent_definition]
 trait OrderAgent {
-    fn new(init: OrderAgentId) -> Self;
+    fn new(init: String) -> Self;
     fn initialize_order(&mut self, data: CreateOrder) -> Result<(), InitOrderError>;
     fn get_order(&self) -> Option<Order>;
     async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError>;
@@ -278,14 +278,14 @@ trait OrderAgent {
 }
 
 struct OrderAgentImpl {
-    _id: OrderAgentId,
+    _id: String,
     state: Option<Order>,
 }
 
 impl OrderAgentImpl {
     fn get_state(&mut self) -> &mut Order {
         self.state
-            .get_or_insert(Order::new(self._id.id.clone(), "anonymous".to_string()))
+            .get_or_insert(Order::new(self._id.clone(), "anonymous".to_string()))
     }
 
     fn with_state<T>(&mut self, f: impl FnOnce(&mut Order) -> T) -> T {
@@ -295,7 +295,7 @@ impl OrderAgentImpl {
 
 #[agent_implementation]
 impl OrderAgent for OrderAgentImpl {
-    fn new(id: OrderAgentId) -> Self {
+    fn new(id: String) -> Self {
         OrderAgentImpl {
             _id: id,
             state: None,
@@ -366,8 +366,8 @@ impl OrderAgent for OrderAgentImpl {
         let updated = state.update_item_quantity(product_id.clone(), quantity);
 
         if !updated {
-            let product_client = ProductAgentClient::get(ProductAgentId::new(product_id.clone()));
-            let pricing_client = PricingAgentClient::get(PricingAgentId::new(product_id.clone()));
+            let product_client = ProductAgentClient::get(product_id.clone());
+            let pricing_client = PricingAgentClient::get(product_id.clone());
 
             let (product, pricing) = join(
                 product_client.get_product(),
@@ -538,16 +538,5 @@ impl OrderAgent for OrderAgentImpl {
                 ))
             }
         })
-    }
-}
-
-#[derive(Schema)]
-pub struct OrderAgentId {
-    id: String,
-}
-
-impl OrderAgentId {
-    pub fn new(id: String) -> Self {
-        OrderAgentId { id }
     }
 }
