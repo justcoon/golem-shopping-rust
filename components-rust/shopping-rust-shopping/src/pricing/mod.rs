@@ -12,7 +12,7 @@ pub struct Pricing {
 }
 
 impl Pricing {
-    pub fn new(product_id: String) -> Self {
+    fn new(product_id: String) -> Self {
         // let now = chrono::Utc::now();
         Self {
             product_id,
@@ -24,11 +24,11 @@ impl Pricing {
         }
     }
 
-    pub fn get_price(&self, currency: String, zone: String) -> Option<PricingItem> {
+    fn get_price(&self, currency: String, zone: String) -> Option<PricingItem> {
         get_price(currency, zone, self.clone())
     }
 
-    pub fn set_prices(
+    fn set_prices(
         &mut self,
         msrp_prices: Vec<PricingItem>,
         list_prices: Vec<PricingItem>,
@@ -40,7 +40,7 @@ impl Pricing {
         // self.updated_at = chrono::Utc::now();
     }
 
-    pub fn update_prices(
+    fn update_prices(
         &mut self,
         msrp_prices: Vec<PricingItem>,
         list_prices: Vec<PricingItem>,
@@ -207,11 +207,7 @@ struct PricingAgentImpl {
 
 impl PricingAgentImpl {
     fn get_state(&mut self) -> &mut Pricing {
-        self.state.get_or_insert(Pricing {
-            product_id: self._id.id.clone(),
-            msrp_prices: vec![],
-            list_prices: vec![],
-        })
+        self.state.get_or_insert(Pricing::new(self._id.id.clone()))
     }
 }
 

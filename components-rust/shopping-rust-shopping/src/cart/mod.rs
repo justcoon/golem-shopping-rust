@@ -23,7 +23,7 @@ pub struct Cart {
 }
 
 impl Cart {
-    pub fn new(user_id: String) -> Self {
+    fn new(user_id: String) -> Self {
         Self {
             user_id,
             email: None,
@@ -37,12 +37,12 @@ impl Cart {
         }
     }
 
-    pub fn order_created(&mut self, order_id: String) {
+    fn order_created(&mut self, order_id: String) {
         self.clear();
         self.previous_order_ids.push(order_id);
     }
 
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.items.clear();
         self.billing_address = None;
         self.shipping_address = None;
@@ -50,38 +50,38 @@ impl Cart {
         // self.updated_at = chrono::Utc::now();
     }
 
-    pub fn recalculate_total(&mut self) {
+    fn recalculate_total(&mut self) {
         self.total = get_total_price(self.items.clone());
         // self.updated_at = chrono::Utc::now();
     }
 
-    pub fn add_item(&mut self, item: CartItem) -> bool {
+    fn add_item(&mut self, item: CartItem) -> bool {
         self.items.push(item);
         self.recalculate_total();
         true
     }
 
-    pub fn set_items(&mut self, items: Vec<CartItem>) {
+    fn set_items(&mut self, items: Vec<CartItem>) {
         self.items = items;
         self.recalculate_total();
     }
 
-    pub fn set_billing_address(&mut self, address: Address) {
+    fn set_billing_address(&mut self, address: Address) {
         self.billing_address = Some(address);
         // self.updated_at = chrono::Utc::now();
     }
 
-    pub fn set_shipping_address(&mut self, address: Address) {
+    fn set_shipping_address(&mut self, address: Address) {
         self.shipping_address = Some(address);
         // self.updated_at = chrono::Utc::now();
     }
 
-    pub fn set_email(&mut self, email: String) {
+    fn set_email(&mut self, email: String) {
         self.email = Some(email);
         // self.updated_at = chrono::Utc::now();
     }
 
-    pub fn update_item_quantity(&mut self, product_id: String, quantity: u32) -> bool {
+    fn update_item_quantity(&mut self, product_id: String, quantity: u32) -> bool {
         let mut updated = false;
 
         for item in &mut self.items {
@@ -98,7 +98,7 @@ impl Cart {
         updated
     }
 
-    pub fn remove_item(&mut self, product_id: String) -> bool {
+    fn remove_item(&mut self, product_id: String) -> bool {
         let exist = self.items.iter().any(|item| item.product_id == product_id);
 
         if exist {
