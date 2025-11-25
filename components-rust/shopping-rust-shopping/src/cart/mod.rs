@@ -4,8 +4,8 @@ use crate::pricing::{PricingAgentClient, PricingAgentId, PricingItem};
 use crate::product::{Product, ProductAgentClient, ProductAgentId};
 use crate::shopping_assistant::{ShoppingAssistantAgentClient, ShoppingAssistantAgentId};
 use email_address::EmailAddress;
+use futures::future::join;
 use golem_rust::{agent_definition, agent_implementation, Schema};
-use std::future::Future;
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -339,23 +339,11 @@ struct CartAgentImpl {
 
 impl CartAgentImpl {
     fn get_state(&mut self) -> &mut Cart {
-        if self.state.is_none() {
-            let value = Cart::new(self._id.id.clone());
-            self.state = Some(value);
-        }
-        self.state.as_mut().unwrap()
+        self.state.get_or_insert(Cart::new(self._id.id.clone()))
     }
 
     fn with_state<T>(&mut self, f: impl FnOnce(&mut Cart) -> T) -> T {
         f(self.get_state())
-    }
-
-    async fn with_state_async<T, F, Fut>(&mut self, f: F) -> T
-    where
-        F: FnOnce(&mut Cart) -> Fut,
-        Fut: Future<Output = T>,
-    {
-        f(self.get_state()).await
     }
 }
 
@@ -375,12 +363,19 @@ impl CartAgent for CartAgentImpl {
             for item in cart.items.clone() {
                 let product_id = item.product_id;
                 let quantity = item.quantity;
-                let product = ProductAgentClient::get(ProductAgentId::new(product_id.clone()))
-                    .get_product()
-                    .await;
-                let pricing = PricingAgentClient::get(PricingAgentId::new(product_id.clone()))
-                    .get_price(cart.currency.clone(), PRICING_ZONE_DEFAULT.to_string())
-                    .await;
+
+                let product_client =
+                    ProductAgentClient::get(ProductAgentId::new(product_id.clone()));
+                let pricing_client =
+                    PricingAgentClient::get(PricingAgentId::new(product_id.clone()));
+
+                let (product, pricing) = join(
+                    product_client.get_product(),
+                    pricing_client
+                        .get_price(cart.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
+                )
+                .await;
+
                 match (product, pricing) {
                     (Some(product), Some(pricing)) => {
                         items.push(get_cart_item(product, pricing, quantity));
@@ -406,12 +401,15 @@ impl CartAgent for CartAgentImpl {
         let updated = state.update_item_quantity(product_id.clone(), quantity);
 
         if !updated {
-            let product = ProductAgentClient::get(ProductAgentId::new(product_id.clone()))
-                .get_product()
-                .await;
-            let pricing = PricingAgentClient::get(PricingAgentId::new(product_id.clone()))
-                .get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string())
-                .await;
+            let product_client = ProductAgentClient::get(ProductAgentId::new(product_id.clone()));
+            let pricing_client = PricingAgentClient::get(PricingAgentId::new(product_id.clone()));
+
+            let (product, pricing) = join(
+                product_client.get_product(),
+                pricing_client.get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
+            )
+            .await;
+
             match (product, pricing) {
                 (Some(product), Some(pricing)) => {
                     state.add_item(get_cart_item(product, pricing, quantity));
@@ -441,8 +439,7 @@ impl CartAgent for CartAgentImpl {
         state.order_created(order_id.clone());
 
         ShoppingAssistantAgentClient::get(ShoppingAssistantAgentId::new(state.user_id.clone()))
-            .recommend_items()
-            .await;
+            .trigger_recommend_items();
 
         Ok(OrderConfirmation { order_id })
     }

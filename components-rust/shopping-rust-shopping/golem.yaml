@@ -39,16 +39,16 @@ httpApi:
               let agent = pricing-agent(id);
               agent.initialize-pricing(request.body.msrp-prices, request.body.list-prices, request.body.sale-prices);
               {status: 200u64, body: {message: "created"}}
-#        - method: PATCH
-#          path: "/v1/pricing/{product-id}"
-#          binding:
-#            type: default
-#            componentName: shopping-rust:shopping
-#            response: |-
-#              let id: string = request.path.product-id;
-#              let agent = pricing-agent(id);
-#              agent.update-pricing(request.body.msrp-prices, request.body.list-prices, request.body.sale-prices);
-#              {status: 200u64, body: {message: "updated"}}
+        - method: PATCH
+          path: "/v1/pricing/{product-id}"
+          binding:
+            type: default
+            componentName: shopping-rust:shopping
+            response: |-
+              let id: string = request.path.product-id;
+              let agent = pricing-agent(id);
+              agent.update-pricing(request.body.msrp-prices, request.body.list-prices, request.body.sale-prices);
+              {status: 200u64, body: {message: "updated"}}
         - method: GET
           path: "/v1/product/search?{query}"
           binding:

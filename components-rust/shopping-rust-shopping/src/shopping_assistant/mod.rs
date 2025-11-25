@@ -5,8 +5,6 @@ use golem_rust::{agent_definition, agent_implementation, Schema};
 use std::collections::HashMap;
 
 async fn get_order_items(id: String) -> Vec<OrderItem> {
-    let mut items = Vec::new();
-
     let cart = CartAgentClient::get(CartAgentId::new(id)).get_cart().await;
 
     if let Some(cart) = cart {
@@ -21,14 +19,16 @@ async fn get_order_items(id: String) -> Vec<OrderItem> {
 
         let orders = join_all(tasks).await;
 
-        for order in orders {
-            if let Some(order) = order {
-                items.extend(order.items);
-            }
-        }
-    }
+        let items = orders
+            .into_iter()
+            .filter_map(|o| o)
+            .flat_map(|o| o.items)
+            .collect();
 
-    reduce_order_items(items)
+        reduce_order_items(items)
+    } else {
+        vec![]
+    }
 }
 
 fn reduce_order_items(items: Vec<OrderItem>) -> Vec<OrderItem> {
@@ -50,7 +50,9 @@ fn reduce_order_items(items: Vec<OrderItem>) -> Vec<OrderItem> {
     result.into_iter().take(100).collect()
 }
 
-async fn getLLMRecommendations(items: Vec<OrderItem>) -> Option<RecommendedItems> {
+async fn get_llm_recommendations(items: Vec<OrderItem>) -> Option<RecommendedItems> {
+    println!("LLM recommendations - items: {}", items.len());
+
     None
 }
 
@@ -92,7 +94,7 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
 
     async fn recommend_items(&mut self) -> bool {
         let order_items = get_order_items(self._id.id.clone()).await;
-        let recommended_items = getLLMRecommendations(order_items).await;
+        let recommended_items = get_llm_recommendations(order_items).await;
         if let Some(recommended_items) = recommended_items {
             self.recommended_items = recommended_items;
             true

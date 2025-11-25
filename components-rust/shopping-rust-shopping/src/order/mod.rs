@@ -2,6 +2,7 @@ use crate::common::{Address, CURRENCY_DEFAULT, PRICING_ZONE_DEFAULT};
 use crate::pricing::{PricingAgentClient, PricingAgentId};
 use crate::product::{ProductAgentClient, ProductAgentId};
 use email_address::EmailAddress;
+use futures::future::join;
 use golem_rust::{agent_definition, agent_implementation, Schema};
 use std::str::FromStr;
 
@@ -283,11 +284,8 @@ struct OrderAgentImpl {
 
 impl OrderAgentImpl {
     fn get_state(&mut self) -> &mut Order {
-        if self.state.is_none() {
-            let value = Order::new(self._id.id.clone(), "".to_string());
-            self.state = Some(value);
-        }
-        self.state.as_mut().unwrap()
+        self.state
+            .get_or_insert(Order::new(self._id.id.clone(), "anonymous".to_string()))
     }
 
     fn with_state<T>(&mut self, f: impl FnOnce(&mut Order) -> T) -> T {
@@ -368,12 +366,14 @@ impl OrderAgent for OrderAgentImpl {
         let updated = state.update_item_quantity(product_id.clone(), quantity);
 
         if !updated {
-            let product = ProductAgentClient::get(ProductAgentId::new(product_id.clone()))
-                .get_product()
-                .await;
-            let pricing = PricingAgentClient::get(PricingAgentId::new(product_id.clone()))
-                .get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string())
-                .await;
+            let product_client = ProductAgentClient::get(ProductAgentId::new(product_id.clone()));
+            let pricing_client = PricingAgentClient::get(PricingAgentId::new(product_id.clone()));
+
+            let (product, pricing) = join(
+                product_client.get_product(),
+                pricing_client.get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
+            )
+            .await;
             match (product, pricing) {
                 (Some(product), Some(pricing)) => {
                     state.add_item(OrderItem {

@@ -133,8 +133,6 @@ async fn get_products(
     agent_ids: HashSet<String>,
     matcher: ProductQueryMatcher,
 ) -> Result<Vec<Product>, String> {
-    let mut result: Vec<Product> = vec![];
-
     let clients: Vec<ProductAgentClient> = agent_ids
         .into_iter()
         .map(|agent_id| ProductAgentClient::get(ProductAgentId::new(agent_id.to_string())))
@@ -144,20 +142,19 @@ async fn get_products(
 
     let responses = join_all(tasks).await;
 
-    for response in responses {
-        if let Some(product) = response {
-            if matcher.matches(product.clone()) {
-                result.push(product);
-            }
-        }
-    }
+    let result: Vec<Product> = responses
+        .into_iter()
+        .filter_map(|p| p)
+        .filter(|p| matcher.matches(p.clone()))
+        .collect();
 
-    Result::Ok(result)
+    Ok(result)
 }
 
 #[agent_definition(mode = "ephemeral")]
 trait ProductSearchAgent {
     fn new(init: ProductSearchAgentId) -> Self;
+
     async fn search(&self, query: String) -> Result<Vec<Product>, String>;
 }
 

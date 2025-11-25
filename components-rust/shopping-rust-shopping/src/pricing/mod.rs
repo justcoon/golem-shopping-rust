@@ -13,7 +13,7 @@ pub struct Pricing {
 
 impl Pricing {
     pub fn new(product_id: String) -> Self {
-        let now = chrono::Utc::now();
+        // let now = chrono::Utc::now();
         Self {
             product_id,
             msrp_prices: vec![],
@@ -190,16 +190,29 @@ fn merge_items(updates: Vec<PricingItem>, current: Vec<PricingItem>) -> Vec<Pric
 #[agent_definition]
 trait PricingAgent {
     fn new(init: PricingAgentId) -> Self;
+
     fn get_pricing(&self) -> Option<Pricing>;
 
     fn get_price(&self, currency: String, zone: String) -> Option<PricingItem>;
 
     fn initialize_pricing(&mut self, msrp_prices: Vec<PricingItem>, list_prices: Vec<PricingItem>);
+
+    fn update_pricing(&mut self, msrp_prices: Vec<PricingItem>, list_prices: Vec<PricingItem>);
 }
 
 struct PricingAgentImpl {
     _id: PricingAgentId,
     state: Option<Pricing>,
+}
+
+impl PricingAgentImpl {
+    fn get_state(&mut self) -> &mut Pricing {
+        self.state.get_or_insert(Pricing {
+            product_id: self._id.id.clone(),
+            msrp_prices: vec![],
+            list_prices: vec![],
+        })
+    }
 }
 
 #[agent_implementation]
@@ -223,11 +236,11 @@ impl PricingAgent for PricingAgentImpl {
     }
 
     fn initialize_pricing(&mut self, msrp_prices: Vec<PricingItem>, list_prices: Vec<PricingItem>) {
-        self.state = Some(Pricing {
-            msrp_prices,
-            list_prices,
-            product_id: self._id.id.clone(),
-        });
+        self.get_state().set_prices(msrp_prices, list_prices);
+    }
+
+    fn update_pricing(&mut self, msrp_prices: Vec<PricingItem>, list_prices: Vec<PricingItem>) {
+        self.get_state().update_prices(msrp_prices, list_prices);
     }
 }
 
