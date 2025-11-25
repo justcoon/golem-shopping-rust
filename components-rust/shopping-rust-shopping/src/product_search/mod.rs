@@ -69,7 +69,7 @@ impl ProductQueryMatcher {
     }
 
     // Check if a product matches the query
-    pub fn matches(&self, product: Product) -> bool {
+    fn matches(&self, product: Product) -> bool {
         fn text_matches(text: &str, query: &str) -> bool {
             query == "*" || text.to_lowercase().contains(&query.to_lowercase())
         }
@@ -175,6 +175,8 @@ impl ProductSearchAgent for ProductSearchAgentImpl {
 
     async fn search(&self, query: String) -> Result<Vec<Product>, String> {
         if let Some(component_id) = self.component_id {
+            println!("searching for products - query: {}", query);
+
             let mut values: Vec<Product> = Vec::new();
             let matcher = ProductQueryMatcher::new(&query);
 
