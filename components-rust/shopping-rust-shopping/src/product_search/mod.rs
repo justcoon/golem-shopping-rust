@@ -1,9 +1,8 @@
 use crate::product::{Product, ProductAgentClient, ProductAgentId};
 use futures::future::join_all;
-use golem_rust::bindings::golem::api::host::resolve_component_id;
-use golem_rust::golem_agentic::golem::api::host::{
-    AgentAllFilter, AgentAnyFilter, AgentNameFilter, AgentPropertyFilter, GetAgents,
-    StringFilterComparator,
+use golem_rust::bindings::golem::api::host::{
+    resolve_component_id, AgentAllFilter, AgentAnyFilter, AgentNameFilter, AgentPropertyFilter,
+    GetAgents, StringFilterComparator,
 };
 use golem_rust::wasm_rpc::ComponentId;
 use golem_rust::{agent_definition, agent_implementation, Schema};
@@ -74,9 +73,14 @@ impl ProductQueryMatcher {
             query == "*" || text.to_lowercase().contains(&query.to_lowercase())
         }
 
+        fn text_exact_matches(text: &str, query: &str) -> bool {
+            query == "*" || text == query
+        }
+
         // Check field filters first
         for (field, value) in self.field_filters.iter() {
             let matches = match field.to_lowercase().as_str() {
+                "product-id" | "productid" => text_exact_matches(&product.product_id, &value),
                 "name" => text_matches(&product.name, &value),
                 "brand" => text_matches(&product.brand, &value),
                 "description" => text_matches(&product.description, &value),

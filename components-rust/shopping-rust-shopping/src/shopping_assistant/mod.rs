@@ -1,9 +1,10 @@
 use crate::cart::{CartAgentClient, CartAgentId};
+use crate::common::Datetime;
 use crate::order::{OrderAgentClient, OrderAgentId, OrderItem};
 use futures::future::join_all;
 use golem_rust::{agent_definition, agent_implementation, Schema};
+use golem_rust::golem_ai::golem::llm::llm;
 use std::collections::HashMap;
-use crate::common::Datetime;
 
 async fn get_order_items(id: String) -> Vec<OrderItem> {
     let cart = CartAgentClient::get(CartAgentId::new(id)).get_cart().await;
@@ -75,6 +76,7 @@ trait ShoppingAssistantAgent {
 
 struct ShoppingAssistantAgentImpl {
     _id: ShoppingAssistantAgentId,
+    // llm_config: llm::Config,
     recommended_items: RecommendedItems,
 }
 
@@ -86,7 +88,7 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
             recommended_items: RecommendedItems {
                 product_ids: Vec::new(),
                 product_brands: Vec::new(),
-                updated_at: Datetime::now()
+                updated_at: Datetime::now(),
             },
         }
     }
