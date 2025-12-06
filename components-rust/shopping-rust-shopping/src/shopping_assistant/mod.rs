@@ -2,9 +2,14 @@ use crate::cart::{CartAgentClient, CartAgentId};
 use crate::common::Datetime;
 use crate::order::{OrderAgentClient, OrderAgentId, OrderItem};
 use futures::future::join_all;
-use golem_rust::{agent_definition, agent_implementation, Schema};
 use golem_rust::golem_ai::golem::llm::llm;
+use golem_rust::{agent_definition, agent_implementation, Schema};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+pub const RECOMMENDATION_INPUT_COUNT: u8 = 100;
+pub const RECOMMENDATION_PRODUCT_COUNT: u8 = 4;
+pub const RECOMMENDATION_BRAND_COUNT: u8 = 3;
 
 async fn get_order_items(id: String) -> Vec<OrderItem> {
     let cart = CartAgentClient::get(CartAgentId::new(id)).get_cart().await;
@@ -49,13 +54,126 @@ fn reduce_order_items(items: Vec<OrderItem>) -> Vec<OrderItem> {
 
     result.sort_by_key(|v| v.quantity);
 
-    result.into_iter().take(100).collect()
+    result
+        .into_iter()
+        .take(RECOMMENDATION_INPUT_COUNT as usize)
+        .collect()
 }
 
-async fn get_llm_recommendations(items: Vec<OrderItem>) -> Option<RecommendedItems> {
+async fn get_llm_recommendations(items: Vec<OrderItem>) -> Result<LlmRecommendedItems, String> {
     println!("LLM recommendations - items: {}", items.len());
 
-    None
+    let current_items: Vec<LlmOrderItem> = items
+        .into_iter()
+        .map(|item| LlmOrderItem::from(item))
+        .collect();
+    let current_items_string = serde_json::to_string(&current_items).map_err(|e| e.to_string())?;
+    let config = llm::Config {
+        model: "tngtech/deepseek-r1t2-chimera:free".to_string(),
+        max_tokens: None,
+        temperature: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+        provider_options: Some(vec![llm::Kv {
+            key: "responseFormat".to_string(),
+            value: "json_object".to_string(),
+        }]),
+    };
+
+    let system_message = r#"
+                            You MUST respond with JSON in the following schema:
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                       "product_brands": {
+                                            "type": "array",
+                                            "items": {"type": "string"}
+                                        },
+                                        "product_ids": {
+                                            "type": "array",
+                                            "items": {"type": "string"}
+                                        }
+                                    },
+                                    "required": ["product_brands", "product_ids"],
+                                    "additionalProperties": false
+                                }
+
+                                Return ONLY valid JSON, no other text.
+                        "#;
+
+    let system_event = llm::Event::Message(llm::Message {
+        role: llm::Role::System,
+        name: None,
+        content: vec![llm::ContentPart::Text(system_message.to_string())],
+    });
+
+    let user_message = format!(
+        r#"
+                           We have a list of order items: {current_items_string}.
+                           Can you do {RECOMMENDATION_PRODUCT_COUNT} recommendations for products items to buy based on previous order items.
+                           Can you do {RECOMMENDATION_BRAND_COUNT} recommendations for product brands to buy based on previous order items.
+                           Return the list of product_id-s and list of product_brand-s as a valid JSON object. Return JSON only.
+                           "#
+    );
+
+    let user_event = llm::Event::Message(llm::Message {
+        role: llm::Role::User,
+        name: None,
+        content: vec![llm::ContentPart::Text(user_message.to_string())],
+    });
+
+    let llm_response = llm::send(&vec![system_event, user_event], &config);
+    match llm_response {
+        Ok(response) => {
+            let json = response
+                .content
+                .iter()
+                .filter_map(|part| match part {
+                    llm::ContentPart::Text(text) => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<String>();
+
+            let s = json
+                .strip_prefix("```json")
+                .and_then(|s| s.strip_suffix("```"))
+                .unwrap_or(&json)
+                .trim();
+            serde_json::from_str(s).map_err(|e| e.to_string())
+        }
+        Err(e) => {
+            println!("LLM error: {}", e);
+            Err(e.to_string())
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LlmOrderItem {
+    pub product_id: String,
+    pub product_name: String,
+    pub product_brand: String,
+    pub price: f32,
+    pub quantity: u32,
+}
+
+impl From<OrderItem> for LlmOrderItem {
+    fn from(item: OrderItem) -> Self {
+        LlmOrderItem {
+            product_id: item.product_id,
+            product_name: item.product_name,
+            product_brand: item.product_brand,
+            price: item.price,
+            quantity: item.quantity,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LlmRecommendedItems {
+    pub product_ids: Vec<String>,
+    pub product_brands: Vec<String>,
 }
 
 #[derive(Schema, Clone)]
@@ -100,8 +218,12 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
     async fn recommend_items(&mut self) -> bool {
         let order_items = get_order_items(self._id.id.clone()).await;
         let recommended_items = get_llm_recommendations(order_items).await;
-        if let Some(recommended_items) = recommended_items {
-            self.recommended_items = recommended_items;
+        if let Ok(recommended_items) = recommended_items {
+            self.recommended_items = RecommendedItems {
+                product_ids: recommended_items.product_ids,
+                product_brands: recommended_items.product_brands,
+                updated_at: Datetime::now(),
+            };
             true
         } else {
             false
