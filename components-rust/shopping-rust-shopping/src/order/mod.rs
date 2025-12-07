@@ -1,6 +1,6 @@
 use crate::common::{Address, Datetime, CURRENCY_DEFAULT, PRICING_ZONE_DEFAULT};
-use crate::pricing::{PricingAgentClient, PricingAgentId};
-use crate::product::{ProductAgentClient, ProductAgentId};
+use crate::pricing::PricingAgentClient;
+use crate::product::ProductAgentClient;
 use email_address::EmailAddress;
 use futures::future::join;
 use golem_rust::{agent_definition, agent_implementation, Schema};
@@ -260,7 +260,7 @@ fn get_total_price(items: Vec<OrderItem>) -> f32 {
 
 #[agent_definition]
 trait OrderAgent {
-    fn new(init: OrderAgentId) -> Self;
+    fn new(init: String) -> Self;
     fn initialize_order(&mut self, data: CreateOrder) -> Result<(), InitOrderError>;
     fn get_order(&self) -> Option<Order>;
     async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError>;
@@ -278,14 +278,14 @@ trait OrderAgent {
 }
 
 struct OrderAgentImpl {
-    _id: OrderAgentId,
+    _id: String,
     state: Option<Order>,
 }
 
 impl OrderAgentImpl {
     fn get_state(&mut self) -> &mut Order {
         self.state
-            .get_or_insert(Order::new(self._id.id.clone(), "anonymous".to_string()))
+            .get_or_insert(Order::new(self._id.clone(), "anonymous".to_string()))
     }
 
     fn with_state<T>(&mut self, f: impl FnOnce(&mut Order) -> T) -> T {
@@ -295,7 +295,7 @@ impl OrderAgentImpl {
 
 #[agent_implementation]
 impl OrderAgent for OrderAgentImpl {
-    fn new(id: OrderAgentId) -> Self {
+    fn new(id: String) -> Self {
         OrderAgentImpl {
             _id: id,
             state: None,
@@ -366,8 +366,8 @@ impl OrderAgent for OrderAgentImpl {
         let updated = state.update_item_quantity(product_id.clone(), quantity);
 
         if !updated {
-            let product_client = ProductAgentClient::get(ProductAgentId::new(product_id.clone()));
-            let pricing_client = PricingAgentClient::get(PricingAgentId::new(product_id.clone()));
+            let product_client = ProductAgentClient::get(product_id.clone());
+            let pricing_client = PricingAgentClient::get(product_id.clone());
 
             let (product, pricing) = join(
                 product_client.get_product(),
@@ -538,16 +538,5 @@ impl OrderAgent for OrderAgentImpl {
                 ))
             }
         })
-    }
-}
-
-#[derive(Schema)]
-pub struct OrderAgentId {
-    id: String,
-}
-
-impl OrderAgentId {
-    pub fn new(id: String) -> Self {
-        OrderAgentId { id }
     }
 }

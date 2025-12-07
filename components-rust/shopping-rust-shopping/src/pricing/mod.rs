@@ -187,7 +187,7 @@ fn merge_sale_items(
 
 #[agent_definition]
 trait PricingAgent {
-    fn new(init: PricingAgentId) -> Self;
+    fn new(init: String) -> Self;
 
     fn get_pricing(&self) -> Option<Pricing>;
 
@@ -209,19 +209,19 @@ trait PricingAgent {
 }
 
 struct PricingAgentImpl {
-    _id: PricingAgentId,
+    _id: String,
     state: Option<Pricing>,
 }
 
 impl PricingAgentImpl {
     fn get_state(&mut self) -> &mut Pricing {
-        self.state.get_or_insert(Pricing::new(self._id.id.clone()))
+        self.state.get_or_insert(Pricing::new(self._id.clone()))
     }
 }
 
 #[agent_implementation]
 impl PricingAgent for PricingAgentImpl {
-    fn new(id: PricingAgentId) -> Self {
+    fn new(id: String) -> Self {
         PricingAgentImpl {
             _id: id,
             state: None,
@@ -257,16 +257,5 @@ impl PricingAgent for PricingAgentImpl {
     ) {
         self.get_state()
             .update_prices(msrp_prices, list_prices, sale_prices);
-    }
-}
-
-#[derive(Schema)]
-pub struct PricingAgentId {
-    id: String,
-}
-
-impl PricingAgentId {
-    pub fn new(id: String) -> Self {
-        PricingAgentId { id }
     }
 }

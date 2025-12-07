@@ -1,8 +1,8 @@
 use crate::common::{Address, Datetime, CURRENCY_DEFAULT, PRICING_ZONE_DEFAULT};
-use crate::order::{CreateOrder, OrderAgentClient, OrderAgentId, OrderItem};
-use crate::pricing::{PricingAgentClient, PricingAgentId, PricingItem};
-use crate::product::{Product, ProductAgentClient, ProductAgentId};
-use crate::shopping_assistant::{ShoppingAssistantAgentClient, ShoppingAssistantAgentId};
+use crate::order::{CreateOrder, OrderAgentClient, OrderItem};
+use crate::pricing::{PricingAgentClient, PricingItem};
+use crate::product::{Product, ProductAgentClient};
+use crate::shopping_assistant::ShoppingAssistantAgentClient;
 use email_address::EmailAddress;
 use futures::future::join;
 use golem_rust::{agent_definition, agent_implementation, Schema};
@@ -302,7 +302,7 @@ async fn create_order(order_id: String, cart: Cart) -> Result<String, CheckoutEr
 
     let order = cart.into();
 
-    OrderAgentClient::get(OrderAgentId::new(order_id.clone()))
+    OrderAgentClient::get(order_id.clone())
         .initialize_order(order)
         .await
         .map_err(|_| {
@@ -316,7 +316,7 @@ async fn create_order(order_id: String, cart: Cart) -> Result<String, CheckoutEr
 
 #[agent_definition]
 trait CartAgent {
-    fn new(init: CartAgentId) -> Self;
+    fn new(init: String) -> Self;
     async fn get_cart(&mut self) -> Option<Cart>;
     async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError>;
     async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError>;
@@ -333,13 +333,13 @@ trait CartAgent {
 }
 
 struct CartAgentImpl {
-    _id: CartAgentId,
+    _id: String,
     state: Option<Cart>,
 }
 
 impl CartAgentImpl {
     fn get_state(&mut self) -> &mut Cart {
-        self.state.get_or_insert(Cart::new(self._id.id.clone()))
+        self.state.get_or_insert(Cart::new(self._id.clone()))
     }
 
     fn with_state<T>(&mut self, f: impl FnOnce(&mut Cart) -> T) -> T {
@@ -349,7 +349,7 @@ impl CartAgentImpl {
 
 #[agent_implementation]
 impl CartAgent for CartAgentImpl {
-    fn new(id: CartAgentId) -> Self {
+    fn new(id: String) -> Self {
         CartAgentImpl {
             _id: id,
             state: None,
@@ -364,10 +364,8 @@ impl CartAgent for CartAgentImpl {
                 let product_id = item.product_id;
                 let quantity = item.quantity;
 
-                let product_client =
-                    ProductAgentClient::get(ProductAgentId::new(product_id.clone()));
-                let pricing_client =
-                    PricingAgentClient::get(PricingAgentId::new(product_id.clone()));
+                let product_client = ProductAgentClient::get(product_id.clone());
+                let pricing_client = PricingAgentClient::get(product_id.clone());
 
                 let (product, pricing) = join(
                     product_client.get_product(),
@@ -401,8 +399,8 @@ impl CartAgent for CartAgentImpl {
         let updated = state.update_item_quantity(product_id.clone(), quantity);
 
         if !updated {
-            let product_client = ProductAgentClient::get(ProductAgentId::new(product_id.clone()));
-            let pricing_client = PricingAgentClient::get(PricingAgentId::new(product_id.clone()));
+            let product_client = ProductAgentClient::get(product_id.clone());
+            let pricing_client = PricingAgentClient::get(product_id.clone());
 
             let (product, pricing) = join(
                 product_client.get_product(),
@@ -438,8 +436,7 @@ impl CartAgent for CartAgentImpl {
 
         state.order_created(order_id.clone());
 
-        ShoppingAssistantAgentClient::get(ShoppingAssistantAgentId::new(state.user_id.clone()))
-            .trigger_recommend_items();
+        ShoppingAssistantAgentClient::get(state.user_id.clone()).trigger_recommend_items();
 
         Ok(OrderConfirmation { order_id })
     }
@@ -532,16 +529,5 @@ impl CartAgent for CartAgentImpl {
             state.set_shipping_address(address.into());
             Ok(())
         })
-    }
-}
-
-#[derive(Schema)]
-pub struct CartAgentId {
-    id: String,
-}
-
-impl CartAgentId {
-    pub fn new(id: String) -> Self {
-        CartAgentId { id }
     }
 }
