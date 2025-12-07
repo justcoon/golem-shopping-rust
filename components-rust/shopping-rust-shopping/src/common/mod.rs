@@ -47,9 +47,3 @@ impl FromValueAndType for Datetime {
             .ok_or_else(|| "Expected datetime string".to_string())
     }
 }
-
-// #[derive(Schema, Clone)]
-// pub struct Test {
-//     pub id2: uuid::Uuid,
-//     pub date: chrono::DateTime<chrono::Utc>
-// }

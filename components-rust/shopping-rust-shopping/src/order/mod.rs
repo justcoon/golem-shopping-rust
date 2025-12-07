@@ -260,7 +260,7 @@ fn get_total_price(items: Vec<OrderItem>) -> f32 {
 
 #[agent_definition]
 trait OrderAgent {
-    fn new(init: String) -> Self;
+    fn new(id: String) -> Self;
     fn initialize_order(&mut self, data: CreateOrder) -> Result<(), InitOrderError>;
     fn get_order(&self) -> Option<Order>;
     async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError>;
