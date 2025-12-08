@@ -70,12 +70,16 @@ impl Order {
         true
     }
 
-    fn update_item_quantity(&mut self, product_id: String, quantity: u32) -> bool {
+    fn update_item_quantity(&mut self, product_id: String, quantity: u32, add: bool) -> bool {
         let mut updated = false;
 
         for item in &mut self.items {
             if item.product_id == product_id {
-                item.quantity = quantity;
+                if add {
+                    item.quantity += quantity;
+                } else {
+                    item.quantity = quantity;
+                }
                 updated = true;
             }
         }
@@ -136,7 +140,7 @@ impl ActionNotAllowedError {
     fn new(status: OrderStatus) -> ActionNotAllowedError {
         ActionNotAllowedError {
             message: "Can not update order with status".to_string(),
-            status: status.into(),
+            status,
         }
     }
 }
@@ -363,7 +367,7 @@ impl OrderAgent for OrderAgentImpl {
             product_id, state.order_id, state.user_id
         );
 
-        let updated = state.update_item_quantity(product_id.clone(), quantity);
+        let updated = state.update_item_quantity(product_id.clone(), quantity, true);
 
         if !updated {
             let product_client = ProductAgentClient::get(product_id.clone());
@@ -428,7 +432,7 @@ impl OrderAgent for OrderAgentImpl {
                 state.order_id, state.user_id
             );
             if state.order_status == OrderStatus::New {
-                state.set_billing_address(address.into());
+                state.set_billing_address(address);
                 Ok(())
             } else {
                 Err(UpdateAddressError::ActionNotAllowed(
@@ -449,7 +453,7 @@ impl OrderAgent for OrderAgentImpl {
                 product_id, quantity, state.order_id, state.user_id
             );
             if state.order_status == OrderStatus::New {
-                let updated = state.update_item_quantity(product_id.clone(), quantity);
+                let updated = state.update_item_quantity(product_id.clone(), quantity, false);
 
                 if updated {
                     Ok(())
@@ -473,7 +477,7 @@ impl OrderAgent for OrderAgentImpl {
                 state.order_id, state.user_id
             );
             if state.order_status == OrderStatus::New {
-                state.set_shipping_address(address.into());
+                state.set_shipping_address(address);
                 Ok(())
             } else {
                 Err(UpdateAddressError::ActionNotAllowed(
