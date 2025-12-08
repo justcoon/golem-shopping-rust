@@ -28,7 +28,7 @@ impl Datetime {
 
 impl IntoValue for Datetime {
     fn add_to_builder<T: NodeBuilder>(self, builder: T) -> T::Result {
-        builder.string(self.0.to_string().as_str())
+        builder.string(self.0.to_rfc3339().as_str())
     }
 
     fn add_to_type_builder<T: TypeNodeBuilder>(builder: T) -> T::Result {
@@ -42,7 +42,12 @@ impl FromValueAndType for Datetime {
     ) -> Result<Self, String> {
         extractor
             .string()
-            .and_then(|s| s.parse::<chrono::DateTime<chrono::Utc>>().ok())
+            .and_then(|s| {
+                chrono::DateTime::parse_from_rfc3339(s)
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .or(s.parse::<chrono::DateTime<chrono::Utc>>())
+                    .ok()
+            })
             .map(|d| Datetime(d))
             .ok_or_else(|| "Expected datetime string".to_string())
     }

@@ -129,15 +129,19 @@ async fn get_llm_recommendations(items: Vec<OrderItem>) -> Result<LlmRecommended
                 .collect::<String>();
 
             let json_str = response_content
+                .trim()
                 .strip_prefix("```json")
                 .and_then(|s| s.strip_suffix("```"))
                 .unwrap_or(&response_content)
                 .trim();
 
-            serde_json::from_str(json_str).map_err(|e| e.to_string())
+            serde_json::from_str(json_str).map_err(|e| {
+                println!("LLM recommendations - response: {}, error: {}", json_str, e);
+                e.to_string()
+            })
         }
         Err(e) => {
-            println!("LLM error: {}", e);
+            println!("LLM recommendations - error: {}", e);
             Err(e.to_string())
         }
     }
@@ -211,15 +215,25 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
     async fn recommend_items(&mut self) -> bool {
         let order_items = get_order_items(self._id.clone()).await;
         let recommended_items = get_llm_recommendations(order_items).await;
-        if let Ok(recommended_items) = recommended_items {
-            self.recommended_items = RecommendedItems {
-                product_ids: recommended_items.product_ids,
-                product_brands: recommended_items.product_brands,
-                updated_at: Datetime::now(),
-            };
-            true
-        } else {
-            false
+
+        match recommended_items {
+            Ok(recommended_items) => {
+                println!(
+                    "Recommended items - product count: {}, product brands count: {}",
+                    recommended_items.product_ids.len(),
+                    recommended_items.product_brands.len()
+                );
+                self.recommended_items = RecommendedItems {
+                    product_ids: recommended_items.product_ids,
+                    product_brands: recommended_items.product_brands,
+                    updated_at: Datetime::now(),
+                };
+                true
+            }
+            Err(e) => {
+                println!("Recommended items - error: {}", e);
+                false
+            }
         }
     }
 }
