@@ -14,7 +14,7 @@ pub struct Product {
 
 #[agent_definition]
 trait ProductAgent {
-    fn new(init: String) -> Self;
+    fn new(id: String) -> Self;
 
     fn get_product(&self) -> Option<Product>;
 

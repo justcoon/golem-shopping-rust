@@ -187,7 +187,7 @@ fn merge_sale_items(
 
 #[agent_definition]
 trait PricingAgent {
-    fn new(init: String) -> Self;
+    fn new(id: String) -> Self;
 
     fn get_pricing(&self) -> Option<Pricing>;
 

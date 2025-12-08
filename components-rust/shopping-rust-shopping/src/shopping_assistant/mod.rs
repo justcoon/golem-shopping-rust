@@ -4,6 +4,7 @@ use crate::order::{OrderAgentClient, OrderItem};
 use futures::future::join_all;
 use golem_rust::golem_ai::golem::llm::llm;
 use golem_rust::{agent_definition, agent_implementation, Schema};
+use schemars::{schema_for, JsonSchema};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -82,26 +83,16 @@ async fn get_llm_recommendations(items: Vec<OrderItem>) -> Result<LlmRecommended
         }]),
     };
 
-    let system_message = r#"
-                            You MUST respond with JSON in the following schema:
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                       "product_brands": {
-                                            "type": "array",
-                                            "items": {"type": "string"}
-                                        },
-                                        "product_ids": {
-                                            "type": "array",
-                                            "items": {"type": "string"}
-                                        }
-                                    },
-                                    "required": ["product_brands", "product_ids"],
-                                    "additionalProperties": false
-                                }
+    let schema = schema_for!(LlmRecommendedItems);
+    let schema_json = serde_json::to_string_pretty(&schema).map_err(|e| e.to_string())?;
 
-                                Return ONLY valid JSON, no other text.
-                        "#;
+    let system_message = format!(
+        r#"
+            You MUST respond with JSON in the following schema:
+                {schema_json}
+            Return ONLY valid JSON, no other text.
+        "#
+    );
 
     let system_event = llm::Event::Message(llm::Message {
         role: llm::Role::System,
@@ -111,11 +102,11 @@ async fn get_llm_recommendations(items: Vec<OrderItem>) -> Result<LlmRecommended
 
     let user_message = format!(
         r#"
-                           We have a list of order items: {current_items_string}.
-                           Can you do {RECOMMENDATION_PRODUCT_COUNT} recommendations for products items to buy based on previous order items.
-                           Can you do {RECOMMENDATION_BRAND_COUNT} recommendations for product brands to buy based on previous order items.
-                           Return the list of product_id-s and list of product_brand-s as a valid JSON object. Return JSON only.
-                           "#
+           We have a list of order items: {current_items_string}.
+           Can you do {RECOMMENDATION_PRODUCT_COUNT} recommendations for products items to buy based on previous order items.
+           Can you do {RECOMMENDATION_BRAND_COUNT} recommendations for product brands to buy based on previous order items.
+           Return the list of product_id-s and list of product_brand-s as a valid JSON object. Return JSON only.
+        "#
     );
 
     let user_event = llm::Event::Message(llm::Message {
@@ -125,6 +116,7 @@ async fn get_llm_recommendations(items: Vec<OrderItem>) -> Result<LlmRecommended
     });
 
     let llm_response = llm::send(&vec![system_event, user_event], &config);
+
     match llm_response {
         Ok(response) => {
             let response_content = response
@@ -137,15 +129,19 @@ async fn get_llm_recommendations(items: Vec<OrderItem>) -> Result<LlmRecommended
                 .collect::<String>();
 
             let json_str = response_content
+                .trim()
                 .strip_prefix("```json")
                 .and_then(|s| s.strip_suffix("```"))
                 .unwrap_or(&response_content)
                 .trim();
 
-            serde_json::from_str(json_str).map_err(|e| e.to_string())
+            serde_json::from_str(json_str).map_err(|e| {
+                println!("LLM recommendations - response: {}, error: {}", json_str, e);
+                e.to_string()
+            })
         }
         Err(e) => {
-            println!("LLM error: {}", e);
+            println!("LLM recommendations - error: {}", e);
             Err(e.to_string())
         }
     }
@@ -172,7 +168,7 @@ impl From<OrderItem> for LlmOrderItem {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone)]
 pub struct LlmRecommendedItems {
     pub product_ids: Vec<String>,
     pub product_brands: Vec<String>,
@@ -219,15 +215,25 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
     async fn recommend_items(&mut self) -> bool {
         let order_items = get_order_items(self._id.clone()).await;
         let recommended_items = get_llm_recommendations(order_items).await;
-        if let Ok(recommended_items) = recommended_items {
-            self.recommended_items = RecommendedItems {
-                product_ids: recommended_items.product_ids,
-                product_brands: recommended_items.product_brands,
-                updated_at: Datetime::now(),
-            };
-            true
-        } else {
-            false
+
+        match recommended_items {
+            Ok(recommended_items) => {
+                println!(
+                    "Recommended items - product count: {}, product brands count: {}",
+                    recommended_items.product_ids.len(),
+                    recommended_items.product_brands.len()
+                );
+                self.recommended_items = RecommendedItems {
+                    product_ids: recommended_items.product_ids,
+                    product_brands: recommended_items.product_brands,
+                    updated_at: Datetime::now(),
+                };
+                true
+            }
+            Err(e) => {
+                println!("Recommended items - error: {}", e);
+                false
+            }
         }
     }
 }

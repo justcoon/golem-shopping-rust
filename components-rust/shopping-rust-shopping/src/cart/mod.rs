@@ -316,7 +316,7 @@ async fn create_order(order_id: String, cart: Cart) -> Result<String, CheckoutEr
 
 #[agent_definition]
 trait CartAgent {
-    fn new(init: String) -> Self;
+    fn new(id: String) -> Self;
     async fn get_cart(&mut self) -> Option<Cart>;
     async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError>;
     async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError>;
