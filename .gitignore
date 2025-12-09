@@ -1,5 +1,9 @@
+/dist
 /golem-temp
+/node_modules
+**/node_modules
 /target
 **/target
 .idea
 *.iml
+package-lock.json
