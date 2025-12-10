@@ -13,8 +13,8 @@ const orders = computed(() => orderStore.orders);
 const isLoading = computed(() => orderStore.isLoading);
 const error = computed(() => orderStore.error);
 
-function formatDate(d: Date) {
-  return d.toLocaleDateString("en-US", {
+function formatDate(d: string) {
+  return new Date(d).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",

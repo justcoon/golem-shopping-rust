@@ -18,7 +18,7 @@ export interface Cart {
   total: number;
   currency: string;
   "previous-order-ids": string[];
-  "updated-at": Date;
+  "updated-at": string;
 }
 
 export interface OrderConfirmation {

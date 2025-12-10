@@ -7,8 +7,8 @@ export interface PricingItem {
 }
 
 export interface SalePricingItem extends PricingItem {
-  start?: Date;
-  end?: Date;
+  start?: string;
+  end?: string;
 }
 
 export interface Pricing {
@@ -16,7 +16,7 @@ export interface Pricing {
   "msrp-prices": PricingItem[];
   "list-prices": PricingItem[];
   "sale-prices": SalePricingItem[];
-  "updated-at": Date;
+  "updated-at": string;
 }
 
 export const getProductPricing = async (
@@ -82,8 +82,8 @@ export const getCurrentSalePrices = (
       : options || {};
 
   return pricing["sale-prices"].filter((sale) => {
-    const start = sale.start;
-    const end = sale.end;
+    const start = sale.start ? new Date(sale.start) : null;
+    const end = sale.end ? new Date(sale.end) : null;
     const matchesCurrency = filterOptions.currency
       ? sale.currency === filterOptions.currency
       : true;

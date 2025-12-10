@@ -18,8 +18,8 @@ const orderStatuses = [
   // { value: 'DELIVERED', label: 'Delivered' }
 ];
 
-function formatDate(d: Date) {
-  return d.toLocaleDateString("en-US", {
+function formatDate(d: string) {
+  return new Date(d).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",

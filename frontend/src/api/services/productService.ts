@@ -197,8 +197,8 @@ export const isProductOnSale = (
   const now = new Date();
   const salePrices = product.pricing["sale-prices"].filter(
     (sale: SalePricingItem) => {
-      const start = sale.start;
-      const end = sale.end;
+      const start = sale.start ? new Date(sale.start) : null;
+      const end = sale.end ? new Date(sale.end) : null;
       const matchesCurrency = options?.currency
         ? sale.currency === options.currency
         : true;

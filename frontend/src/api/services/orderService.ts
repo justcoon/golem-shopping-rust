@@ -19,8 +19,8 @@ export interface Order {
   "order-status": string;
   total: number;
   currency: string;
-  "created-at": Date;
-  "updated-at": Date;
+  "created-at": string;
+  "updated-at": string;
 }
 
 export const getOrder = async (orderId: string): Promise<Order> => {
