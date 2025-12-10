@@ -80,11 +80,11 @@ impl ProductQueryMatcher {
         // Check field filters first
         for (field, value) in self.field_filters.iter() {
             let matches = match field.to_lowercase().as_str() {
-                "product-id" | "productid" => text_exact_matches(&product.product_id, &value),
-                "name" => text_matches(&product.name, &value),
-                "brand" => text_matches(&product.brand, &value),
-                "description" => text_matches(&product.description, &value),
-                "tag" | "tags" => product.tags.iter().any(|tag| text_matches(tag, &value)),
+                "product-id" | "productid" => text_exact_matches(&product.product_id, value),
+                "name" => text_matches(&product.name, value),
+                "brand" => text_matches(&product.brand, value),
+                "description" => text_matches(&product.description, value),
+                "tag" | "tags" => product.tags.iter().any(|tag| text_matches(tag, value)),
                 _ => false, // Unknown field
             };
 
@@ -100,10 +100,10 @@ impl ProductQueryMatcher {
 
         // Check search terms against all searchable fields
         for term in self.terms.iter() {
-            let matches = text_matches(&product.name, &term)
-                || text_matches(&product.brand, &term)
-                || text_matches(&product.description, &term)
-                || product.tags.iter().any(|tag| text_matches(tag, &term));
+            let matches = text_matches(&product.name, term)
+                || text_matches(&product.brand, term)
+                || text_matches(&product.description, term)
+                || product.tags.iter().any(|tag| text_matches(tag, term));
 
             if !matches {
                 return false;
@@ -148,7 +148,7 @@ async fn get_products(
 
     let result: Vec<Product> = responses
         .into_iter()
-        .filter_map(|p| p)
+        .flatten()
         .filter(|p| matcher.matches(p.clone()))
         .collect();
 

@@ -81,12 +81,16 @@ impl Cart {
         self.updated_at = Datetime::now();
     }
 
-    fn update_item_quantity(&mut self, product_id: String, quantity: u32) -> bool {
+    fn update_item_quantity(&mut self, product_id: String, quantity: u32, add: bool) -> bool {
         let mut updated = false;
 
         for item in &mut self.items {
             if item.product_id == product_id {
-                item.quantity = quantity;
+                if add {
+                    item.quantity += quantity;
+                } else {
+                    item.quantity = quantity;
+                }
                 updated = true;
             }
         }
@@ -139,8 +143,8 @@ impl From<Cart> for CreateOrder {
             items: value.items.into_iter().map(|item| item.into()).collect(),
             total: value.total,
             currency: value.currency,
-            shipping_address: value.shipping_address.map(|a| a.into()),
-            billing_address: value.billing_address.map(|a| a.into()),
+            shipping_address: value.shipping_address,
+            billing_address: value.billing_address,
         }
     }
 }
@@ -374,11 +378,8 @@ impl CartAgent for CartAgentImpl {
                 )
                 .await;
 
-                match (product, pricing) {
-                    (Some(product), Some(pricing)) => {
-                        items.push(get_cart_item(product, pricing, quantity));
-                    }
-                    _ => (),
+                if let (Some(product), Some(pricing)) = (product, pricing) {
+                    items.push(get_cart_item(product, pricing, quantity));
                 }
             }
             cart.set_items(items);
@@ -396,7 +397,7 @@ impl CartAgent for CartAgentImpl {
             product_id, state.user_id
         );
 
-        let updated = state.update_item_quantity(product_id.clone(), quantity);
+        let updated = state.update_item_quantity(product_id.clone(), quantity, true);
 
         if !updated {
             let product_client = ProductAgentClient::get(product_id.clone());
@@ -491,7 +492,7 @@ impl CartAgent for CartAgentImpl {
                 state.user_id
             );
 
-            state.set_billing_address(address.into());
+            state.set_billing_address(address);
             Ok(())
         })
     }
@@ -507,7 +508,7 @@ impl CartAgent for CartAgentImpl {
                 product_id, quantity, state.user_id
             );
 
-            let updated = state.update_item_quantity(product_id.clone(), quantity);
+            let updated = state.update_item_quantity(product_id.clone(), quantity, false);
 
             if updated {
                 Ok(())
@@ -526,7 +527,7 @@ impl CartAgent for CartAgentImpl {
                 state.user_id
             );
 
-            state.set_shipping_address(address.into());
+            state.set_shipping_address(address);
             Ok(())
         })
     }

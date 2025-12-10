@@ -140,9 +140,7 @@ fn merge_items(updates: Vec<PricingItem>, current: Vec<PricingItem>) -> Vec<Pric
 
         for item in current {
             let key = item.key();
-            if !merge_map.contains_key(&key) {
-                merge_map.insert(key, item);
-            }
+            merge_map.entry(key).or_insert(item);
         }
 
         merge_map.into_values().collect()
@@ -169,9 +167,7 @@ fn merge_sale_items(
 
         for item in current {
             let key = item.key();
-            if !merge_map.contains_key(&key) {
-                merge_map.insert(key, item);
-            }
+            merge_map.entry(key).or_insert(item);
         }
 
         let mut values: Vec<SalePricingItem> = merge_map.into_values().collect();

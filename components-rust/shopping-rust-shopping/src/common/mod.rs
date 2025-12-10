@@ -48,7 +48,7 @@ impl FromValueAndType for Datetime {
                     .or(s.parse::<chrono::DateTime<chrono::Utc>>())
                     .ok()
             })
-            .map(|d| Datetime(d))
+            .map(Datetime)
             .ok_or_else(|| "Expected datetime string".to_string())
     }
 }

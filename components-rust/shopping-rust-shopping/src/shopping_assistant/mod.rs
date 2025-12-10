@@ -27,11 +27,7 @@ async fn get_order_items(id: String) -> Vec<OrderItem> {
 
         let orders = join_all(tasks).await;
 
-        let items = orders
-            .into_iter()
-            .filter_map(|o| o)
-            .flat_map(|o| o.items)
-            .collect();
+        let items = orders.into_iter().flatten().flat_map(|o| o.items).collect();
 
         reduce_order_items(items)
     } else {
@@ -51,7 +47,7 @@ fn reduce_order_items(items: Vec<OrderItem>) -> Vec<OrderItem> {
             .or_insert(item);
     }
 
-    let mut result: Vec<_> = items_map.values().map(|c| c.clone()).collect();
+    let mut result: Vec<_> = items_map.values().cloned().collect();
 
     result.sort_by_key(|v| v.quantity);
 
@@ -64,10 +60,7 @@ fn reduce_order_items(items: Vec<OrderItem>) -> Vec<OrderItem> {
 async fn get_llm_recommendations(items: Vec<OrderItem>) -> Result<LlmRecommendedItems, String> {
     println!("LLM recommendations - items: {}", items.len());
 
-    let current_items: Vec<LlmOrderItem> = items
-        .into_iter()
-        .map(|item| LlmOrderItem::from(item))
-        .collect();
+    let current_items: Vec<LlmOrderItem> = items.into_iter().map(LlmOrderItem::from).collect();
     let current_items_string = serde_json::to_string(&current_items).map_err(|e| e.to_string())?;
 
     let config = llm::Config {
@@ -115,7 +108,7 @@ async fn get_llm_recommendations(items: Vec<OrderItem>) -> Result<LlmRecommended
         content: vec![llm::ContentPart::Text(user_message.to_string())],
     });
 
-    let llm_response = llm::send(&vec![system_event, user_event], &config);
+    let llm_response = llm::send(&[system_event, user_event], &config);
 
     match llm_response {
         Ok(response) => {
