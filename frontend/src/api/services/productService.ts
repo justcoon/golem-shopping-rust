@@ -127,7 +127,7 @@ export const getProductWithPricing = (
 export const getProductsByIds = async (
   productIds: string[],
   options?: PriceFilterOptions,
-): Promise<Record<string, Product>> => {
+): Promise<Product[]> => {
   try {
     // First get all products
     const productsResponse = await Promise.all(
@@ -148,7 +148,7 @@ export const getProductsByIds = async (
       };
     });
 
-    return result;
+    return Object.values(result);
   } catch (error) {
     console.error("Error fetching products by IDs:", error);
     throw error;
