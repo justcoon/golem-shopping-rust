@@ -1,5 +1,4 @@
 use crate::cart::CartAgentClient;
-use crate::common::Datetime;
 use crate::order::{OrderAgentClient, OrderItem};
 use futures::future::join_all;
 use golem_rust::golem_ai::golem::llm::llm;
@@ -171,7 +170,7 @@ pub struct LlmRecommendedItems {
 pub struct RecommendedItems {
     pub product_ids: Vec<String>,
     pub product_brands: Vec<String>,
-    pub updated_at: Datetime,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[agent_definition]
@@ -196,7 +195,7 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
             recommended_items: RecommendedItems {
                 product_ids: Vec::new(),
                 product_brands: Vec::new(),
-                updated_at: Datetime::now(),
+                updated_at: chrono::Utc::now(),
             },
         }
     }
@@ -219,7 +218,7 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
                 self.recommended_items = RecommendedItems {
                     product_ids: recommended_items.product_ids,
                     product_brands: recommended_items.product_brands,
-                    updated_at: Datetime::now(),
+                    updated_at: chrono::Utc::now(),
                 };
                 true
             }

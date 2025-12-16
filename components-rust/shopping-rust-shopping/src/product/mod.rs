@@ -1,4 +1,3 @@
-use crate::common::Datetime;
 use golem_rust::{agent_definition, agent_implementation, Schema};
 
 #[derive(Schema, Clone)]
@@ -8,8 +7,8 @@ pub struct Product {
     pub brand: String,
     pub description: String,
     pub tags: Vec<String>,
-    pub created_at: Datetime,
-    pub updated_at: Datetime,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[agent_definition]
@@ -52,7 +51,7 @@ impl ProductAgent for ProductAgentImpl {
         description: String,
         tags: Vec<String>,
     ) {
-        let now = Datetime::now();
+        let now = chrono::Utc::now();
         self.state = Some(Product {
             product_id: self._id.clone(),
             name,
