@@ -3,6 +3,7 @@ import { computed, watch, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import { useOrderStore } from "@/stores/orderStore";
 import { getProductImage } from "@/api/services/productService";
+import { DateTime, dateTimeToDate } from "@/types/datetime.ts";
 import { formatPrice } from "@/utils/currency";
 
 const route = useRoute();
@@ -18,8 +19,8 @@ const orderStatuses = [
   // { value: 'DELIVERED', label: 'Delivered' }
 ];
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString("en-US", {
+function formatDate(d: DateTime) {
+  return dateTimeToDate(d).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",

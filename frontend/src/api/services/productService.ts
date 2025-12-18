@@ -7,6 +7,7 @@ import {
   type SalePricingItem,
   type PriceFilterOptions,
 } from "./pricingService";
+import { dateTimeToDate } from "@/types/datetime.ts";
 
 export interface Product {
   "product-id": string;
@@ -95,51 +96,44 @@ export const getProductWithPricing = (
   options?: PriceFilterOptions,
 ): Promise<Product> => getProductById(productId, true, options);
 
-// export const getProductsByIds = async (
-//     productIds: string[],
-//     options?: PriceFilterOptions,
-// ): Promise<Product[]> => {
-//     const ids = productIds.join(",");
-//     try {
-//         const response = await apiClient.get(`/v1/product?ids=${ids}`);
-//         const products: Product[] = response.ok;
-//
-//         // Get pricing for all products in batch
-//         const productIds = products.map((p) => p["product-id"]);
-//         const pricingMap = await getBatchPricing(productIds);
-//
-//         // Merge products with their pricing
-//         return products.map((product) => {
-//             const pricing = pricingMap[product["product-id"]];
-//             return {
-//                 ...product,
-//                 pricing,
-//                 bestPrice: pricing ? getBestPrice(pricing, options) : undefined,
-//             };
-//         });
-//     } catch (error) {
-//         console.error(`Error fetching product ${ids}:`, error);
-//         throw error;
-//     }
-// };
-
 // Get multiple products by IDs with their pricing
 export const getProductsByIds = async (
-  productIds: string[],
-  options?: PriceFilterOptions,
+    productIds: string[],
+    options?: PriceFilterOptions,
 ): Promise<Product[]> => {
   try {
-    // First get all products
-    const productsResponse = await Promise.all(
-      productIds.map((id) => getProductById(id, false)),
+    // Get all products, handling individual failures
+    const productPromises = productIds.map(id =>
+        getProductById(id, false)
+            .then(product => ({ success: true, product }))
+            .catch(error => {
+              console.warn(`Failed to fetch product ${id}:`, error.message);
+              return { success: false, id, error };
+            })
     );
 
-    // Then get all pricing in a single batch request
-    const pricingMap = await getBatchPricing(productIds);
+    const results = await Promise.all(productPromises);
+
+    // Filter out failed fetches and extract successful products
+    const validProducts = results
+        .filter((result): result is { success: true; product: Product } => result.success)
+        .map(result => result.product);
+
+    if (validProducts.length === 0) {
+      console.warn('No products were successfully fetched');
+      return [];
+    }
+
+    // Get pricing only for successfully fetched products
+    const validProductIds = validProducts.map(p => p["product-id"]);
+    const pricingMap = await getBatchPricing(validProductIds).catch(error => {
+      console.warn('Failed to fetch batch pricing, continuing without pricing', error);
+      return {}; // Return empty pricing map if batch pricing fails
+    });
 
     // Merge products with their pricing
     const result: Record<string, Product> = {};
-    productsResponse.forEach((product) => {
+    validProducts.forEach((product) => {
       const pricing = pricingMap[product["product-id"]];
       result[product["product-id"]] = {
         ...product,
@@ -150,8 +144,8 @@ export const getProductsByIds = async (
 
     return Object.values(result);
   } catch (error) {
-    console.error("Error fetching products by IDs:", error);
-    throw error;
+    console.error('Unexpected error in getProductsByIds:', error);
+    throw error; // Re-throw for the caller to handle
   }
 };
 
@@ -197,8 +191,8 @@ export const isProductOnSale = (
   const now = new Date();
   const salePrices = product.pricing["sale-prices"].filter(
     (sale: SalePricingItem) => {
-      const start = sale.start ? new Date(sale.start) : null;
-      const end = sale.end ? new Date(sale.end) : null;
+      const start = sale.start ? dateTimeToDate(sale.start) : null;
+      const end = sale.end ? dateTimeToDate(sale.end) : null;
       const matchesCurrency = options?.currency
         ? sale.currency === options.currency
         : true;
