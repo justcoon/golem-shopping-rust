@@ -1,4 +1,3 @@
-use crate::common::Datetime;
 use golem_rust::{agent_definition, agent_implementation, Schema};
 use std::collections::HashMap;
 
@@ -8,13 +7,13 @@ pub struct Pricing {
     pub msrp_prices: Vec<PricingItem>,
     pub list_prices: Vec<PricingItem>,
     pub sale_prices: Vec<SalePricingItem>,
-    pub created_at: Datetime,
-    pub updated_at: Datetime,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl Pricing {
     fn new(product_id: String) -> Self {
-        let now = Datetime::now();
+        let now = chrono::Utc::now();
         Self {
             product_id,
             msrp_prices: vec![],
@@ -38,7 +37,7 @@ impl Pricing {
         self.msrp_prices = msrp_prices;
         self.list_prices = list_prices;
         self.sale_prices = sale_prices;
-        self.updated_at = Datetime::now();
+        self.updated_at = chrono::Utc::now();
     }
 
     fn update_prices(
@@ -50,7 +49,7 @@ impl Pricing {
         self.msrp_prices = merge_items(msrp_prices, self.msrp_prices.clone());
         self.list_prices = merge_items(list_prices, self.list_prices.clone());
         self.sale_prices = merge_sale_items(sale_prices, self.sale_prices.clone());
-        self.updated_at = Datetime::now();
+        self.updated_at = chrono::Utc::now();
     }
 }
 
@@ -72,12 +71,19 @@ pub struct SalePricingItem {
     pub price: f32,
     pub currency: String,
     pub zone: String,
-    pub start: Option<Datetime>,
-    pub end: Option<Datetime>,
+    pub start: Option<chrono::DateTime<chrono::Utc>>,
+    pub end: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl SalePricingItem {
-    fn key(&self) -> (String, String, Option<Datetime>, Option<Datetime>) {
+    fn key(
+        &self,
+    ) -> (
+        String,
+        String,
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    ) {
         (
             self.zone.clone(),
             self.currency.clone(),
@@ -98,7 +104,7 @@ impl From<SalePricingItem> for PricingItem {
 }
 
 fn get_price(currency: String, zone: String, pricing: Pricing) -> Option<PricingItem> {
-    let now = Datetime::now();
+    let now = chrono::Utc::now();
 
     let sale_price = pricing.sale_prices.into_iter().find(|x| {
         x.zone == zone
@@ -157,7 +163,12 @@ fn merge_sale_items(
         updates
     } else {
         let mut merge_map: HashMap<
-            (String, String, Option<Datetime>, Option<Datetime>),
+            (
+                String,
+                String,
+                Option<chrono::DateTime<chrono::Utc>>,
+                Option<chrono::DateTime<chrono::Utc>>,
+            ),
             SalePricingItem,
         > = HashMap::new();
 

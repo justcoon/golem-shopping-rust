@@ -1,5 +1,6 @@
 import apiClient from "../config";
 import type { Address } from "@/types/address";
+import { DateTime } from "@/types/datetime.ts";
 
 export interface OrderItem {
   "product-id": string;
@@ -19,8 +20,8 @@ export interface Order {
   "order-status": string;
   total: number;
   currency: string;
-  "created-at": string;
-  "updated-at": string;
+  "created-at": DateTime;
+  "updated-at": DateTime;
 }
 
 export const getOrder = async (orderId: string): Promise<Order> => {

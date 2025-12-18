@@ -1,5 +1,6 @@
 import apiClient from "../config";
 import type { Address } from "@/types/address";
+import { DateTime } from "@/types/datetime.ts";
 
 export interface CartItem {
   "product-id": string;
@@ -18,7 +19,7 @@ export interface Cart {
   total: number;
   currency: string;
   "previous-order-ids": string[];
-  "updated-at": string;
+  "updated-at": DateTime;
 }
 
 export interface OrderConfirmation {

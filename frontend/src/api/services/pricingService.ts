@@ -1,4 +1,5 @@
 import apiClient from "../config";
+import { DateTime, dateTimeToDate } from "@/types/datetime.ts";
 
 export interface PricingItem {
   price: number;
@@ -7,8 +8,8 @@ export interface PricingItem {
 }
 
 export interface SalePricingItem extends PricingItem {
-  start?: string;
-  end?: string;
+  start?: DateTime;
+  end?: DateTime;
 }
 
 export interface Pricing {
@@ -16,7 +17,7 @@ export interface Pricing {
   "msrp-prices": PricingItem[];
   "list-prices": PricingItem[];
   "sale-prices": SalePricingItem[];
-  "updated-at": string;
+  "updated-at": DateTime;
 }
 
 export const getProductPricing = async (
@@ -82,8 +83,8 @@ export const getCurrentSalePrices = (
       : options || {};
 
   return pricing["sale-prices"].filter((sale) => {
-    const start = sale.start ? new Date(sale.start) : null;
-    const end = sale.end ? new Date(sale.end) : null;
+    const start = sale.start ? dateTimeToDate(sale.start) : null;
+    const end = sale.end ? dateTimeToDate(sale.end) : null;
     const matchesCurrency = filterOptions.currency
       ? sale.currency === filterOptions.currency
       : true;
