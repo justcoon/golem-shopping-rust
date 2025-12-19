@@ -35,10 +35,10 @@ To view or edit this diagram, see the `architecture.puml` file in the project ro
 2. **Build and Deploy**:
    ```bash
    # Build all components
-   golem-cli app build
+   golem-cli build
    
    # Deploy to Golem Network
-   golem-cli app deploy
+   golem-cli deploy
    ```
 
 3. **Import Sample Data**:
