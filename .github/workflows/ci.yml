@@ -13,15 +13,15 @@ on:
         description: Golem version
         type: choice
         required: false
-        default: 1.4.0-rc10
+        default: 1.4.0
         options:
           - latest
           - master
-          - 1.4.0-rc10
+          - 1.4.0
 
 env:
   CARGO_TERM_COLOR: always
-  GOLEM_VERSION: ${{ github.event.inputs.golemversion != '' && github.event.inputs.golemversion || '1.4.0-rc10' }}
+  GOLEM_VERSION: ${{ github.event.inputs.golemversion != '' && github.event.inputs.golemversion || '1.4.0' }}
 
 jobs:
   setup-environment:

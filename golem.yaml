@@ -15,6 +15,13 @@ witDeps:
   - .wit/wit/deps
 
 environments:
+  docker:
+    server:
+      url: http://localhost:9881
+      allowInsecure: true
+      auth:
+        static_token: '{{ GOLEM_AUTH_TOKEN }}'
+    componentPresets: release
   local:
     server: local
     componentPresets: debug
