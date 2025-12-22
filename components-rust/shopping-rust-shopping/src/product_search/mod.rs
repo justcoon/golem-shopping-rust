@@ -4,10 +4,10 @@ use golem_rust::bindings::golem::api::host::{
     resolve_component_id, AgentAllFilter, AgentAnyFilter, AgentNameFilter, AgentPropertyFilter,
     GetAgents, StringFilterComparator,
 };
-use golem_rust::wasm_rpc::ComponentId;
 use golem_rust::{agent_definition, agent_implementation};
 use regex::Regex;
 use std::collections::HashSet;
+use golem_rust::golem_wasm::ComponentId;
 
 #[derive(Clone, Debug)]
 struct ProductQueryMatcher {
