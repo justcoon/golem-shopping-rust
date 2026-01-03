@@ -243,11 +243,6 @@ httpApi:
       - domain: localhost:9006
         definitions:
           - shopping-rust-shopping-api
-    docker:
-      - domain: localhost:9006
-        definitions:
-          - shopping-rust-shopping-api
-
 
 components:
   shopping-rust:shopping:
