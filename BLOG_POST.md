@@ -142,10 +142,10 @@ To ensure the Golem Shopping application meets production-grade performance requ
 
 | Operation                           | Average Response Time | Requests per Second |
 |-------------------------------------|-----------------------|---------------------|
-| Get Product                         | <15ms                 | ~0.4 RPS            |
-| Get Pricing                         | <18ms                 | ~0.4 RPS            |
-| Product Search By Brand             | <201ms                | ~0.4 RPS            |
-| Create, checkout Cart and get Order | <345ms                | ~0.5 RPS            |
+| Get Product                         | 70ms               | 0.40 RPS            |
+| Get Pricing                         | 45ms               | 0.38 RPS            |
+| Product Search By Brand             | 3200ms             | 0.30 RPS            |
+| Create, checkout Cart and get Order | 170ms              | 0.33 RPS            |
 
 ### Test Data
 
@@ -155,8 +155,8 @@ To ensure the Golem Shopping application meets production-grade performance requ
 
 ### Performance Characteristics
 
-1. **Consistent Latency**: The system maintains sub-200ms response times even under load, ensuring a smooth user experience.
-2. **High Throughput**: The application handles approximately 45 requests per second across all endpoints.
+1. **Consistent Latency**: The system maintains sub-100ms response times for core read operations (Product, Pricing) even under load.
+2. **High Throughput**: The application handles approximately 4.4 requests per second across all endpoints in this local configuration.
 3. **Reliability**: 100% success rate across all test scenarios, demonstrating the system's stability.
 4. **Scalability**: The agent-based architecture allows horizontal scaling of individual components based on demand.
 
@@ -186,10 +186,11 @@ see [benchmarks/README.md](https://github.com/justcoon/golem-shopping/blob/main/
 
 The patterns demonstrated in this project can be applied to:
 
-- E-commerce platforms
+- Agent-based architectures
 - Microservices architectures
 - Serverless applications
 - Distributed systems
+- E-commerce platforms
 
 ## Conclusion
 
@@ -200,6 +201,7 @@ The Golem Shopping project showcases how modern web technologies like Rust, WebA
 1. Explore the [GitHub repository](https://github.com/justcoon/golem-shopping-rust)
 2. Try deploying your own instance
 3. Contribute to the project
+4. Check out the [TypeScript implementation](https://github.com/justcoon/golem-shopping-ts) for a similar application built with TypeScript
 
 ## Resources
 
