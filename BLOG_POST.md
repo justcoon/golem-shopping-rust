@@ -167,7 +167,7 @@ Benchmarks can be reproduced using the following commands:
 ```bash
 # Set environment variables
 export HOST=http://localhost:9006
-export API_HOST=golem-shopping.test.local
+export API_HOST=http://localhost:9006
 
 # Run benchmarks
 cargo run --release -- --report-file=report.html --no-reset-metrics
