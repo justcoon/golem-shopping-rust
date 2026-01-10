@@ -148,10 +148,10 @@ To ensure the Golem Shopping application meets production-grade performance requ
 
 | Operation                           | Average Response Time | Requests per Second |
 |-------------------------------------|-----------------------|---------------------|
-| Get Product                         | 70ms               | 0.40 RPS            |
-| Get Pricing                         | 45ms               | 0.38 RPS            |
-| Product Search By Brand             | 3200ms             | 0.30 RPS            |
-| Create, checkout Cart and get Order | 170ms              | 0.33 RPS            |
+| Get Product                         | 31ms                  | 0.42 RPS            |
+| Get Pricing                         | 34ms                  | 0.39 RPS            |
+| Product Search By Brand             | 2100ms                | 0.34 RPS            |
+| Create, checkout Cart and get Order | 170ms                 | 0.32 RPS            |
 
 ### Test Data
 
