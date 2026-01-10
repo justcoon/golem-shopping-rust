@@ -1,8 +1,8 @@
-# Building a Distributed Shopping Application with Rust and Golem: A Agent-Based Architecture
+# Building a Distributed Shopping Application with Rust and Golem: An Agent-Native Architecture
 
 ## Introduction
 
-In today's cloud-native world, developers are constantly seeking more efficient and scalable ways to build applications. The Golem Shopping project demonstrates how to build a distributed shopping application using Rust and the Golem Cloud, showcasing the power of WebAssembly (Wasm) and serverless architectures.
+In today's cloud-native world, developers are constantly seeking more efficient and scalable ways to build applications. The Golem Shopping project demonstrates how to build a distributed shopping application using Rust and the [Golem Cloud](https://golem.cloud/), showcasing the power of WebAssembly (Wasm) and agent-native architectures.
 
 ## Project Overview
 
@@ -36,6 +36,13 @@ The following diagram illustrates the high-level architecture of the Golem Shopp
 *Figure 1: Golem Shopping Application Architecture*
 
 To view or edit this diagram, see the `architecture.puml` file in the project root. The diagram can be rendered using any PlantUML-compatible tool.
+
+### Communication Flow
+
+1. Users interact with the system through the API Gateway
+2. The gateway routes requests to the appropriate agents
+3. Agents communicate via RPC calls as needed
+4. External AI/LLM service enhance the Shopping Assistant's capabilities
 
 ## Component Design
 
@@ -91,7 +98,6 @@ The application exposes REST APIs through Golem's API gateway, providing:
 
 - Standard HTTP interfaces
 - Easy integration with web and mobile clients
-- Authentication and authorization
 
 ## Getting Started
 
@@ -188,7 +194,7 @@ The patterns demonstrated in this project can be applied to:
 
 - Agent-based architectures
 - Microservices architectures
-- Serverless applications
+- Agent-native applications
 - Distributed systems
 - E-commerce platforms
 
