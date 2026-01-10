@@ -1,7 +1,8 @@
 use golem_rust::{agent_definition, agent_implementation, Schema};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize)]
 pub struct Pricing {
     pub product_id: String,
     pub msrp_prices: Vec<PricingItem>,
@@ -53,7 +54,7 @@ impl Pricing {
     }
 }
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize)]
 pub struct PricingItem {
     pub price: f32,
     pub currency: String,
@@ -66,7 +67,7 @@ impl PricingItem {
     }
 }
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize)]
 pub struct SalePricingItem {
     pub price: f32,
     pub currency: String,
@@ -264,5 +265,15 @@ impl PricingAgent for PricingAgentImpl {
     ) {
         self.get_state()
             .update_prices(msrp_prices, list_prices, sale_prices);
+    }
+
+    async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
+        let data: Option<Pricing> = crate::snapshot::deserialize(&bytes)?;
+        self.state = data;
+        Ok(())
+    }
+
+    async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
+        crate::snapshot::serialize(&self.state)
     }
 }

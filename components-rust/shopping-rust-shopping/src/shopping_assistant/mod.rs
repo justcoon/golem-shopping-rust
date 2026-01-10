@@ -166,7 +166,7 @@ pub struct LlmRecommendedItems {
     pub product_brands: Vec<String>,
 }
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize)]
 pub struct RecommendedItems {
     pub product_ids: Vec<String>,
     pub product_brands: Vec<String>,
@@ -227,5 +227,15 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
                 false
             }
         }
+    }
+
+    async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
+        let data: RecommendedItems = crate::snapshot::deserialize(&bytes)?;
+        self.recommended_items = data;
+        Ok(())
+    }
+
+    async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
+        crate::snapshot::serialize(&self.recommended_items)
     }
 }

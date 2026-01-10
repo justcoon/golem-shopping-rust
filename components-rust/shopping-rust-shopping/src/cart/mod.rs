@@ -6,10 +6,11 @@ use crate::shopping_assistant::ShoppingAssistantAgentClient;
 use email_address::EmailAddress;
 use futures::future::join;
 use golem_rust::{agent_definition, agent_implementation, Schema};
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use uuid::Uuid;
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize)]
 pub struct Cart {
     pub user_id: String,
     pub email: Option<String>,
@@ -114,7 +115,7 @@ impl Cart {
     }
 }
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize)]
 pub struct CartItem {
     pub product_id: String,
     pub product_name: String,
@@ -530,5 +531,15 @@ impl CartAgent for CartAgentImpl {
             state.set_shipping_address(address);
             Ok(())
         })
+    }
+
+    async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
+        let data: Option<Cart> = crate::snapshot::deserialize(&bytes)?;
+        self.state = data;
+        Ok(())
+    }
+
+    async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
+        crate::snapshot::serialize(&self.state)
     }
 }
