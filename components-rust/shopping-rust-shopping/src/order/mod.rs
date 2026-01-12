@@ -4,9 +4,10 @@ use crate::product::ProductAgentClient;
 use email_address::EmailAddress;
 use futures::future::join;
 use golem_rust::{agent_definition, agent_implementation, Schema};
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize)]
 pub struct Order {
     pub order_id: String,
     pub user_id: String,
@@ -103,7 +104,7 @@ impl Order {
     }
 }
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize)]
 pub struct OrderItem {
     pub product_id: String,
     pub product_name: String,
@@ -112,14 +113,14 @@ pub struct OrderItem {
     pub quantity: u32,
 }
 
-#[derive(Schema, Clone, Copy, Eq, PartialEq)]
+#[derive(Schema, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub enum OrderStatus {
     New,
     Shipped,
     Cancelled,
 }
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize)]
 pub struct CreateOrder {
     pub user_id: String,
     pub email: Option<String>,
@@ -542,5 +543,15 @@ impl OrderAgent for OrderAgentImpl {
                 ))
             }
         })
+    }
+
+    async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
+        let data: Option<Order> = crate::snapshot::deserialize(&bytes)?;
+        self.state = data;
+        Ok(())
+    }
+
+    async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
+        crate::snapshot::serialize(&self.state)
     }
 }

@@ -1,6 +1,7 @@
 use golem_rust::{agent_definition, agent_implementation, Schema};
+use serde::{Deserialize, Serialize};
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize)]
 pub struct Product {
     pub product_id: String,
     pub name: String,
@@ -61,5 +62,15 @@ impl ProductAgent for ProductAgentImpl {
             created_at: now,
             updated_at: now,
         });
+    }
+
+    async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
+        let data: Option<Product> = crate::snapshot::deserialize(&bytes)?;
+        self.state = data;
+        Ok(())
+    }
+
+    async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
+        crate::snapshot::serialize(&self.state)
     }
 }

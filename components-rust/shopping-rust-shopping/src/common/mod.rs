@@ -1,9 +1,10 @@
 use golem_rust::Schema;
+use serde::{Deserialize, Serialize};
 
 pub const CURRENCY_DEFAULT: &str = "USD";
 pub const PRICING_ZONE_DEFAULT: &str = "global";
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize)]
 pub struct Address {
     pub street: String,
     pub city: String,
