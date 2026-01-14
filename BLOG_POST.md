@@ -1,4 +1,4 @@
-# Building a Distributed Shopping Application with Rust and Golem: An Agent-Native Architecture
+# Building a Distributed Shopping Application with Rust and Golem: An Agent-Based Architecture
 
 ## Introduction
 
@@ -35,20 +35,18 @@ The following diagram illustrates the high-level architecture of the Golem Shopp
 
 *Figure 1: Golem Shopping Application Architecture*
 
-To view or edit this diagram, see the `architecture.puml` file in the project root. The diagram can be rendered using any PlantUML-compatible tool.
-
 ### Communication Flow
 
 1. Users interact with the system through the API Gateway
 2. The gateway routes requests to the appropriate agents
 3. Agents communicate via RPC calls as needed
-4. External AI/LLM service enhance the Shopping Assistant's capabilities
+4. External AI/LLM service enhances the Shopping Assistant's capabilities
 
 ## Component Design
 
 ### 1. Product Agent
 
-The Product Agent serves as the authoritative source for product information. By assigning a dedicated agent to each product, the system achieves fine-grained isolation and scalability. This actor-based approach allows individual products to be updated largely independently, ensuring that high-traffic items don't impact the performance of the rest of the catalog.
+The Product Agent serves as the authoritative source for product information. By assigning a dedicated agent to each product, the system achieves fine-grained isolation and scalability. This agent-based approach allows individual products to be updated largely independently, ensuring that high-traffic items don't impact the performance of the rest of the catalog.
 
 ### 2. Pricing Agent
 
@@ -68,17 +66,13 @@ Once a purchase is committed, the Order Agent takes over to manage the lifecycle
 
 ### 6. Shopping Assistant Agent
 
-Finally, the Shopping Assistant bridges the gap between deterministic business logic and probabilistic AI. By integrating with Large Language Models, it offers users a conversational interface to the store. It is context-aware, accessing user history and active cart data to act as a personalized digital concierge, relying on Golem Cloud to reliably manage the conversation state.
+Finally, the Shopping Assistant bridges the gap between deterministic business logic and probabilistic AI. It is context-aware, using the user's shopping history to make intelligent recommendations for specific products and related brands.
 
 ## Key Features
 
-### 1. Snapshot-Based Updates
+### 1. Durable Agents
 
-The application implements Golem's snapshot-based update mechanism, allowing for:
-
-- Zero-downtime deployments
-- Stateful updates
-- Rollback capabilities
+Golem provides automatic state persistence, ensuring that all code executed within the platform is 100% durable. Unlike traditional frameworks that often require complex DSLs or external databases to manage state, Golem allows developers to write standard code while the platform handles persistence transparently. This means every variable and in-memory structure is automatically saved and restored, simplifying development and eliminating widespread classes of reliability bugs.
 
 ### 2. Agent-to-Agent Communication
 
@@ -91,6 +85,7 @@ Components communicate using Golem's RPC mechanism, enabling:
 
 - Loose coupling between agents
 - Location transparency
+- Exactly-once agent-to-agent communication
 
 ### 3. REST API Gateway
 
@@ -179,7 +174,7 @@ export API_HOST=http://localhost:9006
 cargo run --release -- --report-file=report.html --no-reset-metrics
 ```
 
-see [benchmarks/README.md](https://github.com/justcoon/golem-shopping/blob/main/benchmarks/README.md) for more details
+See [benchmarks/README.md](https://github.com/justcoon/golem-shopping/blob/main/benchmarks/README.md) for more details
 
 ## Benefits of This Architecture
 
