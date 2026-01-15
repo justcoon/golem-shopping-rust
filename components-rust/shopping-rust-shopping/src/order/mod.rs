@@ -368,40 +368,48 @@ impl OrderAgent for OrderAgentImpl {
             product_id, state.order_id, state.user_id
         );
 
-        let updated = state.update_item_quantity(product_id.clone(), quantity, true);
+        if state.order_status == OrderStatus::New {
+            let updated = state.update_item_quantity(product_id.clone(), quantity, true);
 
-        if !updated {
-            let product_client = ProductAgentClient::get(product_id.clone());
-            let pricing_client = PricingAgentClient::get(product_id.clone());
+            if !updated {
+                let product_client = ProductAgentClient::get(product_id.clone());
+                let pricing_client = PricingAgentClient::get(product_id.clone());
 
-            let (product, pricing) = join(
-                product_client.get_product(),
-                pricing_client.get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
-            )
-            .await;
-            match (product, pricing) {
-                (Some(product), Some(pricing)) => {
-                    state.add_item(OrderItem {
-                        product_id,
-                        product_name: product.name,
-                        product_brand: product.brand,
-                        price: pricing.price,
-                        quantity,
-                    });
-                }
-                (None, _) => {
-                    return Err(AddItemError::ProductNotFound(ProductNotFoundError::new(
-                        product_id,
-                    )));
-                }
-                _ => {
-                    return Err(AddItemError::PricingNotFound(PricingNotFoundError::new(
-                        product_id,
-                    )))
+                let (product, pricing) = join(
+                    product_client.get_product(),
+                    pricing_client
+                        .get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
+                )
+                .await;
+                match (product, pricing) {
+                    (Some(product), Some(pricing)) => {
+                        state.add_item(OrderItem {
+                            product_id,
+                            product_name: product.name,
+                            product_brand: product.brand,
+                            price: pricing.price,
+                            quantity,
+                        });
+                    }
+                    (None, _) => {
+                        return Err(AddItemError::ProductNotFound(ProductNotFoundError::new(
+                            product_id,
+                        )));
+                    }
+                    _ => {
+                        return Err(AddItemError::PricingNotFound(PricingNotFoundError::new(
+                            product_id,
+                        )))
+                    }
                 }
             }
+
+            Ok(())
+        } else {
+            Err(AddItemError::ActionNotAllowed(ActionNotAllowedError::new(
+                state.order_status,
+            )))
         }
-        Ok(())
     }
 
     fn remove_item(&mut self, product_id: String) -> Result<(), RemoveItemError> {
