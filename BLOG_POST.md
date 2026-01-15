@@ -48,13 +48,13 @@ The following diagram illustrates the high-level architecture of the Golem Shopp
 
 The Product Agent serves as the authoritative source for product information. By assigning a dedicated agent to each product, the system achieves fine-grained isolation and scalability. This agent-based approach allows individual products to be updated largely independently, ensuring that high-traffic items don't impact the performance of the rest of the catalog.
 
+The Agent definition is as follows. It includes functions for initializing the product data and retrieving it, ensuring a simple interface for data management.
+
 ```rust
 #[agent_definition]
 trait ProductAgent {
     fn new(id: String) -> Self;
-
     fn get_product(&self) -> Option<Product>;
-
     fn initialize_product(
         &mut self,
         name: String,
@@ -69,22 +69,20 @@ trait ProductAgent {
 
 Complementing the product catalog, the Pricing Agent encapsulates all pricing logic. Separating pricing from product data allows for dynamic strategies—such as discounts, flash sales, or personalized offers—to be deployed without modifying the core product definitions. This separation of concerns enables the business to iterate on pricing models rapidly with zero downtime.
 
+The Agent definition is as follows. It includes functions to initialize and update pricing strategies, as well as to retrieve current prices for specific currencies and zones.
+
 ```rust
 #[agent_definition]
 trait PricingAgent {
     fn new(id: String) -> Self;
-
     fn get_pricing(&self) -> Option<Pricing>;
-
     fn get_price(&self, currency: String, zone: String) -> Option<PricingItem>;
-
     fn initialize_pricing(
         &mut self,
         msrp_prices: Vec<PricingItem>,
         list_prices: Vec<PricingItem>,
         sale_prices: Vec<SalePricingItem>,
     );
-
     fn update_pricing(
         &mut self,
         msrp_prices: Vec<PricingItem>,
@@ -97,6 +95,8 @@ trait PricingAgent {
 ### 3. Cart Agent
 
 The Cart Agent anchors the user's shopping experience by providing a persistent, individual shopping cart. Maintained as a stateful entity for every user, it handles the addition and removal of items while performing real-time price validation. When a user is ready to buy, the Cart Agent seamlessly hands off the session data to the Order Agent, ensuring a smooth transition from browsing to purchasing.
+
+The Agent definition is as follows:
 
 ```rust
 #[agent_definition]
@@ -118,74 +118,112 @@ trait CartAgent {
 }
 ```
 
-The `get_cart` method showcases the power of agent composition. It enriches the cart by fetching fresh product details and pricing information in parallel from the Product and Pricing agents. This ensures that the user always sees the most up-to-date information without the Cart agent needing to duplicate this state.
+The `get_cart` function showcases the power of agent composition. It enriches the cart by fetching fresh product details and pricing information in parallel from the Product and Pricing agents. This ensures that the user always sees the most up-to-date information without the Cart agent needing to duplicate this state.
 
 ```rust
-    async fn get_cart(&mut self) -> Option<Cart> {
-        println!("Getting cart");
-        if let Some(cart) = self.state.as_mut() {
-            let mut items = Vec::new();
-            for item in cart.items.clone() {
-                let product_id = item.product_id;
-                let quantity = item.quantity;
+async fn get_cart(&mut self) -> Option<Cart> {
+    println!("Getting cart");
+    if let Some(cart) = self.state.as_mut() {
+        let mut items = Vec::new();
+        for item in cart.items.clone() {
+            let product_id = item.product_id;
+            let quantity = item.quantity;
 
-                let product_client = ProductAgentClient::get(product_id.clone());
-                let pricing_client = PricingAgentClient::get(product_id.clone());
+            let product_client = ProductAgentClient::get(product_id.clone());
+            let pricing_client = PricingAgentClient::get(product_id.clone());
 
-                // Fetch product and pricing in parallel
-                let (product, pricing) = join(
-                    product_client.get_product(),
-                    pricing_client
-                        .get_price(cart.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
-                )
-                .await;
+            // Fetch product and pricing in parallel
+            let (product, pricing) = join(
+                product_client.get_product(),
+                pricing_client
+                    .get_price(cart.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
+            )
+            .await;
 
-                if let (Some(product), Some(pricing)) = (product, pricing) {
-                    items.push(get_cart_item(product, pricing, quantity));
-                }
+            if let (Some(product), Some(pricing)) = (product, pricing) {
+                items.push(get_cart_item(product, pricing, quantity));
             }
-            cart.set_items(items);
-            Some(cart.clone())
-        } else {
-            None
         }
+        cart.set_items(items);
+        Some(cart.clone())
+    } else {
+        None
     }
+}
 ```
 
-The following snippet demonstrates the implementation of the checkout process, where the Cart Agent orchestrates the order creation and triggers the Shopping Assistant:
+The `checkout` function demonstrates the implementation of the checkout process, where the Cart Agent orchestrates the order creation and triggers the Shopping Assistant:
 
 ```rust
-    async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError> {
-        let state = self.get_state();
-        let order_id = generate_order_id();
-        println!("Checkout for order {}", order_id);
+async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError> {
+    let state = self.get_state();
+    let order_id = generate_order_id();
+    println!("Checkout for order {}", order_id);
 
-        create_order(order_id.clone(), state.clone()).await?;
+    create_order(order_id.clone(), state.clone()).await?;
 
-        state.order_created(order_id.clone());
+    state.order_created(order_id.clone());
 
-        ShoppingAssistantAgentClient::get(state.user_id.clone()).trigger_recommend_items();
+    ShoppingAssistantAgentClient::get(state.user_id.clone()).trigger_recommend_items();
 
-        Ok(OrderConfirmation { order_id })
-    }
+    Ok(OrderConfirmation { order_id })
+}
 ```
 
 ### 4. Product Search Agent
 
 Unlike its stateful counterparts, the Product Search Agent is designed for high throughput and stateless operation. It acts as an intelligent router, querying multiple product agents to aggregate results for user searches. Because it maintains no persistent state of its own, it can be scaled horizontally with ease to handle spikes in search traffic.
 
+The Agent definition is as follows:
+
 ```rust
 #[agent_definition(mode = "ephemeral")]
 trait ProductSearchAgent {
     fn new() -> Self;
-
     async fn search(&self, query: String) -> Result<Vec<Product>, String>;
+}
+```
+
+The following implementation of `search` shows how the agent dynamically discovers all active Product Agents using the Golem API and aggregates results from them. This "scatter-gather" pattern allows the search functionality to scale effortlessly as new products are added.
+
+```rust
+async fn search(&self, query: String) -> Result<Vec<Product>, String> {
+  if let Some(component_id) = self.component_id {
+      println!("searching for products - query: {}", query);
+
+      let mut values: Vec<Product> = Vec::new();
+      let matcher = ProductQueryMatcher::new(&query);
+
+      let filter = get_agent_filter();
+
+      let get_agents = GetAgents::new(component_id, Some(&filter), false);
+
+      let mut processed_agent_ids: HashSet<String> = HashSet::new();
+
+      while let Some(agents) = get_agents.get_next() {
+          let agent_ids = agents
+              .iter()
+              .filter_map(|a| get_product_agent_id(a.agent_id.agent_id.as_str()))
+              .filter(|n| !processed_agent_ids.contains(n))
+              .collect::<HashSet<_>>();
+
+          let products = get_products(agent_ids.clone(), matcher.clone()).await?;
+          processed_agent_ids.extend(agent_ids);
+          values.extend(products);
+      }
+
+      Ok(values)
+  } else {
+      Err("Component not found".to_string())
+  }
 }
 ```
 
 ### 5. Order Agent
 
 Once a purchase is committed, the Order Agent takes over to manage the lifecycle of the transaction. It acts as the guardian of order integrity, enforcing valid state transitions from creation to fulfillment. By strictly managing states—such as 'New', 'Shipped', or 'Cancelled'—it ensures that orders become immutable once fulfilled, preserving a reliable audit trail of the business's history.
+
+The Agent definition is as follows:
 
 ```rust
 #[agent_definition]
@@ -208,17 +246,110 @@ trait OrderAgent {
 }
 ```
 
+The `add_item` function highlights an important business rule: items can only be added when the order is in the `New` state. It also demonstrates how to fetch data from the Product and Pricing agents to validate product existence and retrieve current pricing information before updating the order state.
+
+```rust
+async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError> {
+  let state = self.get_state();
+
+  println!(
+      "Adding item with product {} to the order {} of user {}",
+      product_id, state.order_id, state.user_id
+  );
+
+  if state.order_status == OrderStatus::New {
+      let updated = state.update_item_quantity(product_id.clone(), quantity, true);
+
+      if !updated {
+          let product_client = ProductAgentClient::get(product_id.clone());
+          let pricing_client = PricingAgentClient::get(product_id.clone());
+
+          let (product, pricing) = join(
+              product_client.get_product(),
+              pricing_client
+                  .get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
+          )
+          .await;
+          match (product, pricing) {
+              (Some(product), Some(pricing)) => {
+                  state.add_item(OrderItem {
+                      product_id,
+                      product_name: product.name,
+                      product_brand: product.brand,
+                      price: pricing.price,
+                      quantity,
+                  });
+              }
+              (None, _) => {
+                  return Err(AddItemError::ProductNotFound(ProductNotFoundError::new(
+                      product_id,
+                  )));
+              }
+              _ => {
+                  return Err(AddItemError::PricingNotFound(PricingNotFoundError::new(
+                      product_id,
+                  )))
+              }
+          }
+      }
+
+      Ok(())
+  } else {
+      Err(AddItemError::ActionNotAllowed(ActionNotAllowedError::new(
+          state.order_status,
+      )))
+  }
+}
+```
+
+The `ship_order` function validates that the order contains all necessary attributes for shipping—such as a non-empty item list, a valid billing address, and a contact email. This is a simplified implementation that currently focuses on data validation and state transitions. In a production scenario, this function would likely be expanded to invoke a dedicated Shipping Agent or integration service to handle physical logistics.
+
+```rust
+fn ship_order(&mut self) -> Result<(), ShipOrderError> {
+    self.with_state(|state| {
+        println!(
+            "Shipping order {} of user {}",
+            state.order_id, state.user_id
+        );
+        if state.order_status != OrderStatus::New {
+            Err(ShipOrderError::ActionNotAllowed(
+                ActionNotAllowedError::new(state.order_status),
+            ))
+        } else if state.items.is_empty() {
+            Err(ShipOrderError::EmptyItems(EmptyItemsError {
+                message: "Empty items".to_string(),
+            }))
+        } else if state.billing_address.is_none() {
+            Err(ShipOrderError::BillingAddressNotSet(
+                BillingAddressNotSetError {
+                    message: "Billing address not set".to_string(),
+                },
+            ))
+        } else if state.email.is_none() {
+            Err(ShipOrderError::EmptyEmail(EmptyEmailError {
+                message: "Email not set".to_string(),
+            }))
+        } else {
+            state.set_order_status(OrderStatus::Shipped);
+            Ok(())
+        }
+    })
+}
+```
+
+In general, the functions in the Order Agent are similar to those in the Cart Agent, but with an added layer of validation. Each function first verifies the current state of the order to ensure the requested action is permissible before proceeding.
+
 ### 6. Shopping Assistant Agent
 
 Finally, the Shopping Assistant bridges the gap between deterministic business logic and probabilistic AI. It is context-aware, using the user's shopping history to make intelligent recommendations for specific products and related brands.
+
+The Agent definition is as follows:
 
 ```rust
 #[agent_definition]
 trait ShoppingAssistantAgent {
     fn new(id: String) -> Self;
-
     fn get_recommended_items(&self) -> RecommendedItems;
-
     async fn recommend_items(&mut self) -> bool;
 }
 ```
