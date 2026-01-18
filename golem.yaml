@@ -18,6 +18,13 @@ environments:
   local:
     server: local
     componentPresets: debug
+  kube:
+    server:
+      url: http://localhost:80
+      allowInsecure: true
+      auth:
+        staticToken: '{{ GOLEM_AUTH_TOKEN }}'
+    componentPresets: release
   cloud:
     server: cloud
     componentPresets: release%
