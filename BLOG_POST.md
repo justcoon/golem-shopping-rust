@@ -6,7 +6,7 @@ In today's cloud-native world, developers are constantly seeking more efficient 
 
 ## Project Overview
 
-Golem Shopping is a modular e-commerce application composed of four main components:
+Golem Shopping is a modular e-commerce application composed of six agents:
 
 1. **Product Agent**: Manages product information
 2. **Pricing Agent**: Handles product pricing
@@ -48,7 +48,7 @@ The following diagram illustrates the high-level architecture of the Golem Shopp
 
 The Product Agent serves as the authoritative source for product information. By assigning a dedicated agent to each product, the system achieves fine-grained isolation and scalability. This agent-based approach allows individual products to be updated largely independently, ensuring that high-traffic items don't impact the performance of the rest of the catalog.
 
-The Agent definition is as follows. It includes functions for initializing the product data and retrieving it, ensuring a simple interface for data management.
+The agent definition is as follows. It includes functions for initializing the product data and retrieving it, ensuring a simple interface for data management.
 
 ```rust
 #[agent_definition]
@@ -69,7 +69,7 @@ trait ProductAgent {
 
 Complementing the product catalog, the Pricing Agent encapsulates all pricing logic. Separating pricing from product data allows for dynamic strategies—such as discounts, flash sales, or personalized offers—to be deployed without modifying the core product definitions. This separation of concerns enables the business to iterate on pricing models rapidly with zero downtime.
 
-The Agent definition is as follows. It includes functions to initialize and update pricing strategies, as well as to retrieve current prices for specific currencies and zones.
+The agent definition is as follows. It includes functions to initialize and update pricing strategies, as well as to retrieve current prices for specific currencies and zones.
 
 ```rust
 #[agent_definition]
@@ -96,7 +96,7 @@ trait PricingAgent {
 
 The Cart Agent anchors the user's shopping experience by providing a persistent, individual shopping cart. Maintained as a stateful entity for every user, it handles the addition and removal of items while performing real-time price validation. When a user is ready to buy, the Cart Agent seamlessly hands off the session data to the Order Agent, ensuring a smooth transition from browsing to purchasing.
 
-The Agent definition is as follows:
+The agent definition is as follows:
 
 ```rust
 #[agent_definition]
@@ -118,7 +118,7 @@ trait CartAgent {
 }
 ```
 
-The `get_cart` function showcases the power of agent composition. It enriches the cart by fetching fresh product details and pricing information in parallel from the Product and Pricing agents. This ensures that the user always sees the most up-to-date information without the Cart agent needing to duplicate this state.
+The `get_cart` function showcases the power of agent composition. It enriches the cart by fetching fresh product details and pricing information in parallel from the Product and Pricing agents. This ensures that the user always sees the most up-to-date information.
 
 ```rust
 async fn get_cart(&mut self) -> Option<Cart> {
@@ -152,7 +152,7 @@ async fn get_cart(&mut self) -> Option<Cart> {
 }
 ```
 
-The `checkout` function demonstrates the implementation of the checkout process, where the Cart Agent orchestrates the order creation and triggers the Shopping Assistant:
+The `checkout` function demonstrates the implementation of the checkout process, where the Cart Agent orchestrates the order creation and triggers the Shopping Assistant to generate personalized recommendations:
 
 ```rust
 async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError> {
@@ -174,7 +174,7 @@ async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError> {
 
 Unlike its stateful counterparts, the Product Search Agent is designed for high throughput and stateless operation. It acts as an intelligent router, querying multiple product agents to aggregate results for user searches. Because it maintains no persistent state of its own, it can be scaled horizontally with ease to handle spikes in search traffic.
 
-The Agent definition is as follows:
+The agent definition is as follows:
 
 ```rust
 #[agent_definition(mode = "ephemeral")]
@@ -223,7 +223,7 @@ async fn search(&self, query: String) -> Result<Vec<Product>, String> {
 
 Once a purchase is committed, the Order Agent takes over to manage the lifecycle of the transaction. It acts as the guardian of order integrity, enforcing valid state transitions from creation to fulfillment. By strictly managing states—such as 'New', 'Shipped', or 'Cancelled'—it ensures that orders become immutable once fulfilled, preserving a reliable audit trail of the business's history.
 
-The Agent definition is as follows:
+The agent definition is as follows:
 
 ```rust
 #[agent_definition]
@@ -343,7 +343,7 @@ In general, the functions in the Order Agent are similar to those in the Cart Ag
 
 Finally, the Shopping Assistant bridges the gap between deterministic business logic and probabilistic AI. It is context-aware, using the user's shopping history to make intelligent recommendations for specific products and related brands.
 
-The Agent definition is as follows:
+The agent definition is as follows:
 
 ```rust
 #[agent_definition]
@@ -435,7 +435,7 @@ To ensure the Golem Shopping application meets production-grade performance requ
 
 ### Test Environment
 
-- **Hardware**: Local development environment (MacBook Pro 2019, 2,4 GHz 8-Core Intel Core i9, 32 GB RAM) with Golem [running locally in Docker](https://github.com/golemcloud/golem/tree/main/docker-examples/published-postgres)
+- **Hardware**: Local development environment (MacBook Pro 2019, 2.4 GHz 8-Core Intel Core i9, 32 GB RAM) with Golem [running locally in Docker](https://github.com/golemcloud/golem/tree/main/docker-examples/published-postgres)
 - **Concurrent Users**: 16 virtual users
 - **Test Duration**: Approximately 3 minutes
 - **Test Scenarios**:
