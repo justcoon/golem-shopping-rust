@@ -40,9 +40,9 @@ The following diagram illustrates the high-level architecture of the Golem Shopp
 1. Users interact with the system through the API Gateway
 2. The gateway routes requests to the appropriate agents
 3. Agents communicate via RPC calls as needed
-4. External AI/LLM service enhances the Shopping Assistant's capabilities
+4. An external AI/LLM service enhances the Shopping Assistant's capabilities
 
-## Component Design
+## Agent Design
 
 ### 1. Product Agent
 
@@ -115,6 +115,49 @@ trait CartAgent {
         quantity: u32,
     ) -> Result<(), UpdateItemQuantityError>;
     fn update_shipping_address(&mut self, address: Address) -> Result<(), UpdateAddressError>;
+}
+```
+
+The `add_item` function demonstrates how to fetch data from the Product and Pricing agents to validate product existence and retrieve current pricing information before updating the cart state.
+
+```rust
+async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError> {
+    let state = self.get_state();
+
+    println!(
+        "Adding item with product {} to the cart of user {}",
+        product_id, state.user_id
+    );
+
+    let updated = state.update_item_quantity(product_id.clone(), quantity, true);
+
+    if !updated {
+        let product_client = ProductAgentClient::get(product_id.clone());
+        let pricing_client = PricingAgentClient::get(product_id.clone());
+
+        let (product, pricing) = join(
+            product_client.get_product(),
+            pricing_client.get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
+        )
+            .await;
+
+        match (product, pricing) {
+            (Some(product), Some(pricing)) => {
+                state.add_item(get_cart_item(product, pricing, quantity));
+            }
+            (None, _) => {
+                return Err(AddItemError::ProductNotFound(ProductNotFoundError::new(
+                    product_id,
+                )));
+            }
+            _ => {
+                return Err(AddItemError::PricingNotFound(PricingNotFoundError::new(
+                    product_id,
+                )))
+            }
+        }
+    }
+    Ok(())
 }
 ```
 
@@ -246,59 +289,29 @@ trait OrderAgent {
 }
 ```
 
-The `add_item` function highlights an important business rule: items can only be added when the order is in the `New` state. It also demonstrates how to fetch data from the Product and Pricing agents to validate product existence and retrieve current pricing information before updating the order state.
+The `remove_item` function highlights an important business rule: items can only be removed when the order is in the `New` state.
 
 ```rust
-async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError> {
-  let state = self.get_state();
-
-  println!(
-      "Adding item with product {} to the order {} of user {}",
-      product_id, state.order_id, state.user_id
-  );
-
-  if state.order_status == OrderStatus::New {
-      let updated = state.update_item_quantity(product_id.clone(), quantity, true);
-
-      if !updated {
-          let product_client = ProductAgentClient::get(product_id.clone());
-          let pricing_client = PricingAgentClient::get(product_id.clone());
-
-          let (product, pricing) = join(
-              product_client.get_product(),
-              pricing_client
-                  .get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
-          )
-          .await;
-          match (product, pricing) {
-              (Some(product), Some(pricing)) => {
-                  state.add_item(OrderItem {
-                      product_id,
-                      product_name: product.name,
-                      product_brand: product.brand,
-                      price: pricing.price,
-                      quantity,
-                  });
-              }
-              (None, _) => {
-                  return Err(AddItemError::ProductNotFound(ProductNotFoundError::new(
-                      product_id,
-                  )));
-              }
-              _ => {
-                  return Err(AddItemError::PricingNotFound(PricingNotFoundError::new(
-                      product_id,
-                  )))
-              }
-          }
-      }
-
-      Ok(())
-  } else {
-      Err(AddItemError::ActionNotAllowed(ActionNotAllowedError::new(
-          state.order_status,
-      )))
-  }
+fn remove_item(&mut self, product_id: String) -> Result<(), RemoveItemError> {
+    self.with_state(|state| {
+        println!(
+            "Removing item with product {} from the order {} of user {}",
+            product_id, state.order_id, state.user_id
+        );
+        if state.order_status == OrderStatus::New {
+            if state.remove_item(product_id.clone()) {
+                Ok(())
+            } else {
+                Err(RemoveItemError::ItemNotFound(ItemNotFoundError::new(
+                    product_id,
+                )))
+            }
+        } else {
+            Err(RemoveItemError::ActionNotAllowed(
+                ActionNotAllowedError::new(state.order_status),
+            ))
+        }
+    })
 }
 ```
 
@@ -441,7 +454,7 @@ To ensure the Golem Shopping application meets production-grade performance requ
 - **Test Scenarios**:
   1. **Product Lookup**: Retrieve product details
   2. **Pricing Lookup**: Fetch product pricing
-  3. **Product Search By Brand**: Perform product searches
+  3. **Product Search by Brand**: Perform product searches
   4. **Cart Operations**: Complete cart workflow including:
      - Adding items to cart
      - Removing items
@@ -456,7 +469,7 @@ To ensure the Golem Shopping application meets production-grade performance requ
 |-------------------------------------|-----------------------|---------------------|
 | Get Product                         | 31ms                  | 0.42 RPS            |
 | Get Pricing                         | 34ms                  | 0.39 RPS            |
-| Product Search By Brand             | 2100ms                | 0.34 RPS            |
+| Product Search by Brand             | 2100ms                | 0.34 RPS            |
 | Create, checkout Cart and get Order | 170ms                 | 0.32 RPS            |
 
 ### Test Data
@@ -513,7 +526,7 @@ The Golem Shopping project showcases how modern web technologies like Rust, WebA
 1. Explore the [GitHub repository](https://github.com/justcoon/golem-shopping-rust)
 2. Try deploying your own instance
 3. Contribute to the project
-4. Check out the [TypeScript implementation](https://github.com/justcoon/golem-shopping-ts) for a similar application built with TypeScript
+4. Check out the [TypeScript implementation](https://github.com/justcoon/golem-shopping-ts) for a similar application
 
 ## Resources
 
