@@ -6,7 +6,7 @@ In today's cloud-native world, developers are constantly seeking more efficient 
 
 ## Project Overview
 
-Golem Shopping is a modular e-commerce application composed of four main components:
+Golem Shopping is a modular e-commerce application composed of six agents:
 
 1. **Product Agent**: Manages product information
 2. **Pricing Agent**: Handles product pricing
@@ -40,15 +40,15 @@ The following diagram illustrates the high-level architecture of the Golem Shopp
 1. Users interact with the system through the API Gateway
 2. The gateway routes requests to the appropriate agents
 3. Agents communicate via RPC calls as needed
-4. External AI/LLM service enhances the Shopping Assistant's capabilities
+4. An external AI/LLM service enhances the Shopping Assistant's capabilities
 
-## Component Design
+## Agent Design
 
 ### 1. Product Agent
 
 The Product Agent serves as the authoritative source for product information. By assigning a dedicated agent to each product, the system achieves fine-grained isolation and scalability. This agent-based approach allows individual products to be updated largely independently, ensuring that high-traffic items don't impact the performance of the rest of the catalog.
 
-The Agent definition is as follows. It includes functions for initializing the product data and retrieving it, ensuring a simple interface for data management.
+The agent definition is as follows. It includes functions for initializing the product data and retrieving it, ensuring a simple interface for data management.
 
 ```rust
 #[agent_definition]
@@ -69,7 +69,7 @@ trait ProductAgent {
 
 Complementing the product catalog, the Pricing Agent encapsulates all pricing logic. Separating pricing from product data allows for dynamic strategies—such as discounts, flash sales, or personalized offers—to be deployed without modifying the core product definitions. This separation of concerns enables the business to iterate on pricing models rapidly with zero downtime.
 
-The Agent definition is as follows. It includes functions to initialize and update pricing strategies, as well as to retrieve current prices for specific currencies and zones.
+The agent definition is as follows. It includes functions to initialize and update pricing strategies, as well as to retrieve current prices for specific currencies and zones.
 
 ```rust
 #[agent_definition]
@@ -96,7 +96,7 @@ trait PricingAgent {
 
 The Cart Agent anchors the user's shopping experience by providing a persistent, individual shopping cart. Maintained as a stateful entity for every user, it handles the addition and removal of items while performing real-time price validation. When a user is ready to buy, the Cart Agent seamlessly hands off the session data to the Order Agent, ensuring a smooth transition from browsing to purchasing.
 
-The Agent definition is as follows:
+The agent definition is as follows:
 
 ```rust
 #[agent_definition]
@@ -118,7 +118,50 @@ trait CartAgent {
 }
 ```
 
-The `get_cart` function showcases the power of agent composition. It enriches the cart by fetching fresh product details and pricing information in parallel from the Product and Pricing agents. This ensures that the user always sees the most up-to-date information without the Cart agent needing to duplicate this state.
+The `add_item` function demonstrates how to fetch data from the Product and Pricing agents to validate product existence and retrieve current pricing information before updating the cart state.
+
+```rust
+async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError> {
+    let state = self.get_state();
+
+    println!(
+        "Adding item with product {} to the cart of user {}",
+        product_id, state.user_id
+    );
+
+    let updated = state.update_item_quantity(product_id.clone(), quantity, true);
+
+    if !updated {
+        let product_client = ProductAgentClient::get(product_id.clone());
+        let pricing_client = PricingAgentClient::get(product_id.clone());
+
+        let (product, pricing) = join(
+            product_client.get_product(),
+            pricing_client.get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
+        )
+            .await;
+
+        match (product, pricing) {
+            (Some(product), Some(pricing)) => {
+                state.add_item(get_cart_item(product, pricing, quantity));
+            }
+            (None, _) => {
+                return Err(AddItemError::ProductNotFound(ProductNotFoundError::new(
+                    product_id,
+                )));
+            }
+            _ => {
+                return Err(AddItemError::PricingNotFound(PricingNotFoundError::new(
+                    product_id,
+                )))
+            }
+        }
+    }
+    Ok(())
+}
+```
+
+The `get_cart` function showcases the power of agent composition. It enriches the cart by fetching fresh product details and pricing information in parallel from the Product and Pricing agents. This ensures that the user always sees the most up-to-date information.
 
 ```rust
 async fn get_cart(&mut self) -> Option<Cart> {
@@ -152,7 +195,7 @@ async fn get_cart(&mut self) -> Option<Cart> {
 }
 ```
 
-The `checkout` function demonstrates the implementation of the checkout process, where the Cart Agent orchestrates the order creation and triggers the Shopping Assistant:
+The `checkout` function demonstrates the implementation of the checkout process, where the Cart Agent orchestrates the order creation and triggers the Shopping Assistant to generate personalized recommendations:
 
 ```rust
 async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError> {
@@ -174,7 +217,7 @@ async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError> {
 
 Unlike its stateful counterparts, the Product Search Agent is designed for high throughput and stateless operation. It acts as an intelligent router, querying multiple product agents to aggregate results for user searches. Because it maintains no persistent state of its own, it can be scaled horizontally with ease to handle spikes in search traffic.
 
-The Agent definition is as follows:
+The agent definition is as follows:
 
 ```rust
 #[agent_definition(mode = "ephemeral")]
@@ -223,7 +266,7 @@ async fn search(&self, query: String) -> Result<Vec<Product>, String> {
 
 Once a purchase is committed, the Order Agent takes over to manage the lifecycle of the transaction. It acts as the guardian of order integrity, enforcing valid state transitions from creation to fulfillment. By strictly managing states—such as 'New', 'Shipped', or 'Cancelled'—it ensures that orders become immutable once fulfilled, preserving a reliable audit trail of the business's history.
 
-The Agent definition is as follows:
+The agent definition is as follows:
 
 ```rust
 #[agent_definition]
@@ -246,59 +289,29 @@ trait OrderAgent {
 }
 ```
 
-The `add_item` function highlights an important business rule: items can only be added when the order is in the `New` state. It also demonstrates how to fetch data from the Product and Pricing agents to validate product existence and retrieve current pricing information before updating the order state.
+The `remove_item` function highlights an important business rule: items can only be removed when the order is in the `New` state.
 
 ```rust
-async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError> {
-  let state = self.get_state();
-
-  println!(
-      "Adding item with product {} to the order {} of user {}",
-      product_id, state.order_id, state.user_id
-  );
-
-  if state.order_status == OrderStatus::New {
-      let updated = state.update_item_quantity(product_id.clone(), quantity, true);
-
-      if !updated {
-          let product_client = ProductAgentClient::get(product_id.clone());
-          let pricing_client = PricingAgentClient::get(product_id.clone());
-
-          let (product, pricing) = join(
-              product_client.get_product(),
-              pricing_client
-                  .get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
-          )
-          .await;
-          match (product, pricing) {
-              (Some(product), Some(pricing)) => {
-                  state.add_item(OrderItem {
-                      product_id,
-                      product_name: product.name,
-                      product_brand: product.brand,
-                      price: pricing.price,
-                      quantity,
-                  });
-              }
-              (None, _) => {
-                  return Err(AddItemError::ProductNotFound(ProductNotFoundError::new(
-                      product_id,
-                  )));
-              }
-              _ => {
-                  return Err(AddItemError::PricingNotFound(PricingNotFoundError::new(
-                      product_id,
-                  )))
-              }
-          }
-      }
-
-      Ok(())
-  } else {
-      Err(AddItemError::ActionNotAllowed(ActionNotAllowedError::new(
-          state.order_status,
-      )))
-  }
+fn remove_item(&mut self, product_id: String) -> Result<(), RemoveItemError> {
+    self.with_state(|state| {
+        println!(
+            "Removing item with product {} from the order {} of user {}",
+            product_id, state.order_id, state.user_id
+        );
+        if state.order_status == OrderStatus::New {
+            if state.remove_item(product_id.clone()) {
+                Ok(())
+            } else {
+                Err(RemoveItemError::ItemNotFound(ItemNotFoundError::new(
+                    product_id,
+                )))
+            }
+        } else {
+            Err(RemoveItemError::ActionNotAllowed(
+                ActionNotAllowedError::new(state.order_status),
+            ))
+        }
+    })
 }
 ```
 
@@ -343,7 +356,7 @@ In general, the functions in the Order Agent are similar to those in the Cart Ag
 
 Finally, the Shopping Assistant bridges the gap between deterministic business logic and probabilistic AI. It is context-aware, using the user's shopping history to make intelligent recommendations for specific products and related brands.
 
-The Agent definition is as follows:
+The agent definition is as follows:
 
 ```rust
 #[agent_definition]
@@ -435,13 +448,13 @@ To ensure the Golem Shopping application meets production-grade performance requ
 
 ### Test Environment
 
-- **Hardware**: Local development environment (MacBook Pro 2019, 2,4 GHz 8-Core Intel Core i9, 32 GB RAM) with Golem [running locally in Docker](https://github.com/golemcloud/golem/tree/main/docker-examples/published-postgres)
+- **Hardware**: Local development environment (MacBook Pro 2019, 2.4 GHz 8-Core Intel Core i9, 32 GB RAM) with Golem [running locally in Docker](https://github.com/golemcloud/golem/tree/main/docker-examples/published-postgres)
 - **Concurrent Users**: 16 virtual users
 - **Test Duration**: Approximately 3 minutes
 - **Test Scenarios**:
   1. **Product Lookup**: Retrieve product details
   2. **Pricing Lookup**: Fetch product pricing
-  3. **Product Search By Brand**: Perform product searches
+  3. **Product Search by Brand**: Perform product searches
   4. **Cart Operations**: Complete cart workflow including:
      - Adding items to cart
      - Removing items
@@ -456,7 +469,7 @@ To ensure the Golem Shopping application meets production-grade performance requ
 |-------------------------------------|-----------------------|---------------------|
 | Get Product                         | 31ms                  | 0.42 RPS            |
 | Get Pricing                         | 34ms                  | 0.39 RPS            |
-| Product Search By Brand             | 2100ms                | 0.34 RPS            |
+| Product Search by Brand             | 2100ms                | 0.34 RPS            |
 | Create, checkout Cart and get Order | 170ms                 | 0.32 RPS            |
 
 ### Test Data
@@ -513,7 +526,7 @@ The Golem Shopping project showcases how modern web technologies like Rust, WebA
 1. Explore the [GitHub repository](https://github.com/justcoon/golem-shopping-rust)
 2. Try deploying your own instance
 3. Contribute to the project
-4. Check out the [TypeScript implementation](https://github.com/justcoon/golem-shopping-ts) for a similar application built with TypeScript
+4. Check out the [TypeScript implementation](https://github.com/justcoon/golem-shopping-ts) for a similar application
 
 ## Resources
 

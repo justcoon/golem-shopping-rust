@@ -15,7 +15,7 @@ This is a simple e-commerce application built with an agent-based architecture, 
 - **Cart Agent**: Manages user shopping carts, with one cart per user, and handles cart-to-order conversion.
 - **Order Agent**: Manages the complete order lifecycle from creation to fulfillment.
 - **Product Search Agent**: Provides product search capabilities across the catalog.
-- **Shopping Assistant**: AI-powered assistant that helps users find products and manage their shopping experience.
+- **Shopping Assistant Agent**: AI-powered assistant that helps users find products and manage their shopping experience.
 
 ### Key Features
 - **RESTful API** for all shopping operations
@@ -27,7 +27,7 @@ This is a simple e-commerce application built with an agent-based architecture, 
 1. Users interact with the system through the API Gateway
 2. The gateway routes requests to the appropriate agents
 3. Agents communicate via RPC calls as needed
-4. External AI/LLM service enhance the Shopping Assistant's capabilities
+4. An external AI/LLM service enhances the Shopping Assistant's capabilities
 
 ### State Management
 All core agents (Product, Pricing, Cart, Order, and Shopping Assistant) have their state managed by Golem Cloud, ensuring reliability and scalability through the agent-based architecture.
