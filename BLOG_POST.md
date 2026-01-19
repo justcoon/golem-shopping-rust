@@ -137,7 +137,7 @@ async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), Ad
 
         let (product, pricing) = join(
             product_client.get_product(),
-            pricing_client.get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
+            pricing_client.get_price(state.currency.clone(), PRICING_REGION_DEFAULT.to_string()),
         ).await;
 
         match (product, pricing) {
@@ -178,7 +178,7 @@ async fn get_cart(&mut self) -> Option<Cart> {
             let (product, pricing) = join(
                 product_client.get_product(),
                 pricing_client
-                    .get_price(cart.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
+                    .get_price(cart.currency.clone(), PRICING_REGION_DEFAULT.to_string()),
             ).await;
 
             if let (Some(product), Some(pricing)) = (product, pricing) {
