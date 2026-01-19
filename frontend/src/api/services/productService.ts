@@ -90,7 +90,7 @@ export const getProductById = async (
 
 
 // Helper to get a product with pricing (alias for backward compatibility)
-// Get product with pricing (with optional currency and zone filters)
+// Get product with pricing (with optional currency and region filters)
 export const getProductWithPricing = (
   productId: string,
   options?: PriceFilterOptions,
@@ -164,13 +164,13 @@ export const getProductOriginalPrice = (
 ): string => {
   if (!product.pricing) return getProductBestPrice(product, options);
 
-  // Filter list prices by currency and zone if provided
+  // Filter list prices by currency and region if provided
   let listPrices = [...product.pricing["list-prices"]];
   if (options?.currency) {
     listPrices = listPrices.filter((p) => p.currency === options.currency);
   }
-  if (options?.zone) {
-    listPrices = listPrices.filter((p) => p.zone === options.zone);
+  if (options?.region) {
+    listPrices = listPrices.filter((p) => p.region === options.region);
   }
 
   if (listPrices.length > 0) {
@@ -187,7 +187,7 @@ export const isProductOnSale = (
 ): boolean => {
   if (!product.pricing?.["sale-prices"]?.length) return false;
 
-  // Filter sale prices by date, currency and zone
+  // Filter sale prices by date, currency and region
   const now = new Date();
   const salePrices = product.pricing["sale-prices"].filter(
     (sale: SalePricingItem) => {
@@ -196,11 +196,11 @@ export const isProductOnSale = (
       const matchesCurrency = options?.currency
         ? sale.currency === options.currency
         : true;
-      const matchesZone = options?.zone ? sale.zone === options.zone : true;
+      const matchesRegion = options?.region ? sale.region === options.region : true;
 
       return (
         matchesCurrency &&
-        matchesZone &&
+        matchesRegion &&
         (!start || now >= start) &&
         (!end || now <= end)
       );
@@ -216,8 +216,8 @@ export const isProductOnSale = (
   if (options?.currency) {
     listPrices = listPrices.filter((p) => p.currency === options.currency);
   }
-  if (options?.zone) {
-    listPrices = listPrices.filter((p) => p.zone === options.zone);
+  if (options?.region) {
+    listPrices = listPrices.filter((p) => p.region === options.region);
   }
 
   const minListPrice =

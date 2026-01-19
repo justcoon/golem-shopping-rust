@@ -4,7 +4,7 @@ import { DateTime, dateTimeToDate } from "@/types/datetime.ts";
 export interface PricingItem {
   price: number;
   currency: string;
-  zone: string;
+  region: string;
 }
 
 export interface SalePricingItem extends PricingItem {
@@ -69,7 +69,7 @@ export const getBatchPricing = async (
 
 export interface PriceFilterOptions {
   currency?: string;
-  zone?: string;
+  region?: string;
 }
 
 export const getCurrentSalePrices = (
@@ -88,13 +88,13 @@ export const getCurrentSalePrices = (
     const matchesCurrency = filterOptions.currency
       ? sale.currency === filterOptions.currency
       : true;
-    const matchesZone = filterOptions.zone
-      ? sale.zone === filterOptions.zone
+    const matchesRegion = filterOptions.region
+      ? sale.region === filterOptions.region
       : true;
 
     return (
       matchesCurrency &&
-      matchesZone &&
+      matchesRegion &&
       (!start || now >= start) &&
       (!end || now <= end)
     );
@@ -115,10 +115,10 @@ export const getBestPrice = (
     const matchesCurrency = filterOptions.currency
       ? p.currency === filterOptions.currency
       : true;
-    const matchesZone = filterOptions.zone
-      ? p.zone === filterOptions.zone
+    const matchesRegion = filterOptions.region
+      ? p.region === filterOptions.region
       : true;
-    return matchesCurrency && matchesZone;
+    return matchesCurrency && matchesRegion;
   });
 
   if (salePrices.length > 0) {

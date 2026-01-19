@@ -69,14 +69,14 @@ trait ProductAgent {
 
 Complementing the product catalog, the Pricing Agent encapsulates all pricing logic. Separating pricing from product data allows for dynamic strategies—such as discounts, flash sales, or personalized offers—to be deployed without modifying the core product definitions. This separation of concerns enables the business to iterate on pricing models rapidly with zero downtime.
 
-The agent definition is as follows. It includes functions to initialize and update pricing strategies, as well as to retrieve current prices for specific currencies and zones.
+The agent definition is as follows. It includes functions to initialize and update pricing strategies, as well as to retrieve current prices for specific currencies and regions.
 
 ```rust
 #[agent_definition]
 trait PricingAgent {
     fn new(id: String) -> Self;
     fn get_pricing(&self) -> Option<Pricing>;
-    fn get_price(&self, currency: String, zone: String) -> Option<PricingItem>;
+    fn get_price(&self, currency: String, region: String) -> Option<PricingItem>;
     fn initialize_pricing(
         &mut self,
         msrp_prices: Vec<PricingItem>,
@@ -137,9 +137,8 @@ async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), Ad
 
         let (product, pricing) = join(
             product_client.get_product(),
-            pricing_client.get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
-        )
-            .await;
+            pricing_client.get_price(state.currency.clone(), PRICING_REGION_DEFAULT.to_string()),
+        ).await;
 
         match (product, pricing) {
             (Some(product), Some(pricing)) => {
@@ -179,9 +178,8 @@ async fn get_cart(&mut self) -> Option<Cart> {
             let (product, pricing) = join(
                 product_client.get_product(),
                 pricing_client
-                    .get_price(cart.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
-            )
-            .await;
+                    .get_price(cart.currency.clone(), PRICING_REGION_DEFAULT.to_string()),
+            ).await;
 
             if let (Some(product), Some(pricing)) = (product, pricing) {
                 items.push(get_cart_item(product, pricing, quantity));

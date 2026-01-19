@@ -1,4 +1,4 @@
-use crate::common::{Address, CURRENCY_DEFAULT, PRICING_ZONE_DEFAULT};
+use crate::common::{Address, CURRENCY_DEFAULT, PRICING_REGION_DEFAULT};
 use crate::pricing::PricingAgentClient;
 use crate::product::ProductAgentClient;
 use email_address::EmailAddress;
@@ -378,7 +378,7 @@ impl OrderAgent for OrderAgentImpl {
                 let (product, pricing) = join(
                     product_client.get_product(),
                     pricing_client
-                        .get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
+                        .get_price(state.currency.clone(), PRICING_REGION_DEFAULT.to_string()),
                 )
                 .await;
                 match (product, pricing) {
@@ -554,12 +554,12 @@ impl OrderAgent for OrderAgentImpl {
     }
 
     async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
-        let data: Option<Order> = crate::snapshot::deserialize(&bytes)?;
+        let data: Option<Order> = crate::common::snapshot::deserialize(&bytes)?;
         self.state = data;
         Ok(())
     }
 
     async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
-        crate::snapshot::serialize(&self.state)
+        crate::common::snapshot::serialize(&self.state)
     }
 }
