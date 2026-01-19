@@ -5,12 +5,12 @@ import {useCartStore} from "@/stores/cartStore.ts";
 
 export interface PricePreferences {
   currency: string;
-  zone: string;
+  region: string;
 }
 
 const DEFAULT_PREFERENCES: PricePreferences = {
   currency: "USD",
-  zone: "global",
+  region: "global",
 };
 
 export const useAuthStore = defineStore("auth", () => {

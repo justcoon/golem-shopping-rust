@@ -1,4 +1,4 @@
-use crate::common::{Address, CURRENCY_DEFAULT, PRICING_ZONE_DEFAULT};
+use crate::common::{Address, CURRENCY_DEFAULT, PRICING_REGION_DEFAULT};
 use crate::order::{CreateOrder, OrderAgentClient, OrderItem};
 use crate::pricing::{PricingAgentClient, PricingItem};
 use crate::product::{Product, ProductAgentClient};
@@ -375,7 +375,7 @@ impl CartAgent for CartAgentImpl {
                 let (product, pricing) = join(
                     product_client.get_product(),
                     pricing_client
-                        .get_price(cart.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
+                        .get_price(cart.currency.clone(), PRICING_REGION_DEFAULT.to_string()),
                 )
                 .await;
 
@@ -406,7 +406,8 @@ impl CartAgent for CartAgentImpl {
 
             let (product, pricing) = join(
                 product_client.get_product(),
-                pricing_client.get_price(state.currency.clone(), PRICING_ZONE_DEFAULT.to_string()),
+                pricing_client
+                    .get_price(state.currency.clone(), PRICING_REGION_DEFAULT.to_string()),
             )
             .await;
 
@@ -534,12 +535,12 @@ impl CartAgent for CartAgentImpl {
     }
 
     async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
-        let data: Option<Cart> = crate::snapshot::deserialize(&bytes)?;
+        let data: Option<Cart> = crate::common::snapshot::deserialize(&bytes)?;
         self.state = data;
         Ok(())
     }
 
     async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
-        crate::snapshot::serialize(&self.state)
+        crate::common::snapshot::serialize(&self.state)
     }
 }

@@ -25,8 +25,8 @@ impl Pricing {
         }
     }
 
-    fn get_price(&self, currency: String, zone: String) -> Option<PricingItem> {
-        get_price(currency, zone, self.clone())
+    fn get_price(&self, currency: String, region: String) -> Option<PricingItem> {
+        get_price(currency, region, self.clone())
     }
 
     fn set_prices(
@@ -58,12 +58,12 @@ impl Pricing {
 pub struct PricingItem {
     pub price: f32,
     pub currency: String,
-    pub zone: String,
+    pub region: String,
 }
 
 impl PricingItem {
     fn key(&self) -> (String, String) {
-        (self.zone.clone(), self.currency.clone())
+        (self.region.clone(), self.currency.clone())
     }
 }
 
@@ -71,7 +71,7 @@ impl PricingItem {
 pub struct SalePricingItem {
     pub price: f32,
     pub currency: String,
-    pub zone: String,
+    pub region: String,
     pub start: Option<chrono::DateTime<chrono::Utc>>,
     pub end: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -86,7 +86,7 @@ impl SalePricingItem {
         Option<chrono::DateTime<chrono::Utc>>,
     ) {
         (
-            self.zone.clone(),
+            self.region.clone(),
             self.currency.clone(),
             self.start,
             self.end,
@@ -99,16 +99,16 @@ impl From<SalePricingItem> for PricingItem {
         Self {
             price: value.price,
             currency: value.currency,
-            zone: value.zone,
+            region: value.region,
         }
     }
 }
 
-fn get_price(currency: String, zone: String, pricing: Pricing) -> Option<PricingItem> {
+fn get_price(currency: String, region: String, pricing: Pricing) -> Option<PricingItem> {
     let now = chrono::Utc::now();
 
     let sale_price = pricing.sale_prices.into_iter().find(|x| {
-        x.zone == zone
+        x.region == region
             && x.currency == currency
             && x.start.is_none_or(|v| now >= v)
             && x.end.is_none_or(|v| now < v)
@@ -120,7 +120,7 @@ fn get_price(currency: String, zone: String, pricing: Pricing) -> Option<Pricing
         let list_price = pricing
             .list_prices
             .into_iter()
-            .find(|x| x.zone == zone && x.currency == currency);
+            .find(|x| x.region == region && x.currency == currency);
 
         if list_price.is_some() {
             list_price
@@ -128,7 +128,7 @@ fn get_price(currency: String, zone: String, pricing: Pricing) -> Option<Pricing
             pricing
                 .msrp_prices
                 .into_iter()
-                .find(|x| x.zone == zone && x.currency == currency)
+                .find(|x| x.region == region && x.currency == currency)
         }
     }
 }
@@ -199,7 +199,7 @@ trait PricingAgent {
 
     fn get_pricing(&self) -> Option<Pricing>;
 
-    fn get_price(&self, currency: String, zone: String) -> Option<PricingItem>;
+    fn get_price(&self, currency: String, region: String) -> Option<PricingItem>;
 
     fn initialize_pricing(
         &mut self,
@@ -236,11 +236,14 @@ impl PricingAgent for PricingAgentImpl {
         }
     }
 
-    fn get_price(&self, currency: String, zone: String) -> Option<PricingItem> {
-        println!("Getting pricing for currency: {} zone: {}", currency, zone);
+    fn get_price(&self, currency: String, region: String) -> Option<PricingItem> {
+        println!(
+            "Getting pricing for currency: {} region: {}",
+            currency, region
+        );
         self.state
             .clone()
-            .and_then(|pricing| pricing.get_price(currency, zone))
+            .and_then(|pricing| pricing.get_price(currency, region))
     }
 
     fn get_pricing(&self) -> Option<Pricing> {
@@ -268,12 +271,12 @@ impl PricingAgent for PricingAgentImpl {
     }
 
     async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
-        let data: Option<Pricing> = crate::snapshot::deserialize(&bytes)?;
+        let data: Option<Pricing> = crate::common::snapshot::deserialize(&bytes)?;
         self.state = data;
         Ok(())
     }
 
     async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
-        crate::snapshot::serialize(&self.state)
+        crate::common::snapshot::serialize(&self.state)
     }
 }

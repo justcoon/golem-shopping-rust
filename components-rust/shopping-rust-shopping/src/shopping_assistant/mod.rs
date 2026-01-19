@@ -230,12 +230,12 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
     }
 
     async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
-        let data: RecommendedItems = crate::snapshot::deserialize(&bytes)?;
+        let data: RecommendedItems = crate::common::snapshot::deserialize(&bytes)?;
         self.recommended_items = data;
         Ok(())
     }
 
     async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
-        crate::snapshot::serialize(&self.recommended_items)
+        crate::common::snapshot::serialize(&self.recommended_items)
     }
 }

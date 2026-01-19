@@ -65,12 +65,12 @@ impl ProductAgent for ProductAgentImpl {
     }
 
     async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
-        let data: Option<Product> = crate::snapshot::deserialize(&bytes)?;
+        let data: Option<Product> = crate::common::snapshot::deserialize(&bytes)?;
         self.state = data;
         Ok(())
     }
 
     async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
-        crate::snapshot::serialize(&self.state)
+        crate::common::snapshot::serialize(&self.state)
     }
 }
