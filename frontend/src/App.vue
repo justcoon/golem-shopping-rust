@@ -63,7 +63,7 @@ onMounted(() => {
 
     <footer class="footer">
       <div class="container">
-        <p>&copy; 2025 Golem Shopping. All rights reserved.</p>
+        <p>&copy; 2026 Golem Shopping. All rights reserved.</p>
       </div>
     </footer>
   </div>

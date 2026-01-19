@@ -1,15 +1,15 @@
 # Schema for IDEA:
-# $schema: https://schema.golem.cloud/app/golem/1.3.0/golem.schema.json
+# $schema: https://schema.golem.cloud/app/golem/1.4.0/golem.schema.json
 # Schema for vscode-yaml:
-# yaml-language-server: $schema=https://schema.golem.cloud/app/golem/1.3.0/golem.schema.json
+# yaml-language-server: $schema=https://schema.golem.cloud/app/golem/1.4.0/golem.schema.json
 
 # Field reference: https://learn.golem.cloud/app-manifest#field-reference
 # Creating HTTP APIs: https://learn.golem.cloud/invoke/making-custom-apis
 
 # Schema for IDEA:
-# $schema: https://schema.golem.cloud/app/golem/1.3.0/golem.schema.json
+# $schema: https://schema.golem.cloud/app/golem/1.4.0/golem.schema.json
 # Schema for vscode-yaml:
-# yaml-language-server: $schema=https://schema.golem.cloud/app/golem/1.3.0/golem.schema.json
+# yaml-language-server: $schema=https://schema.golem.cloud/app/golem/1.4.0/golem.schema.json
 
 # Field reference: https://learn.golem.cloud/app-manifest#field-reference
 # Creating HTTP APIs: https://learn.golem.cloud/invoke/making-custom-apis
@@ -59,16 +59,6 @@ httpApi:
               let agent = product-search-agent();
               let result = agent.search(query);
               match result {  ok(x) => {status: 200u64, body: ok(x)}, err(x) => {status: 400u64, body: err({error: x})} }
-#        - method: GET
-#          path: "/v1/product?{ids}"
-#          binding:
-#            type: default
-#            componentName: shopping-rust:shopping
-#            response: |-
-#              let ids: string = request.query.ids;
-#              let agent = product-search-agent();
-#              let result = agent.get-by-ids(ids);
-#              match result {  ok(x) => {status: 200u64, body: ok(x)}, err(x) => {status: 400u64, body: err({error: x})} }
         - method: GET
           path: "/v1/product/{product-id}"
           binding:
@@ -217,16 +207,6 @@ httpApi:
             response: "let id: string = request.path.order-id;\nlet agent = order-agent(id);\nlet result = agent.remove-item(request.path.product-id);\nmatch
             result {  ok(_) => {status: 200u64, body: ok({message: \"item removed\"})},
             err(x) => {status: 400u64, body: err({error: x})} } "
-#        - method: GET
-#          path: "/v1/assistant/{user-id}/recommended-products"
-#          binding:
-#            type: default
-#            componentName: shopping-rust:shopping
-#            response: |-
-#              let id: string = request.path.user-id;
-#              let agent = shopping-assistant-agent(id);
-#              let result = agent.get-recommended-products();
-#              {status: 200u64, body: result }
         - method: GET
           path: "/v1/assistant/{user-id}/recommended-items"
           binding:
