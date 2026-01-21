@@ -45,7 +45,6 @@ product_search --> product : "RPC\nGet product info"
 ' Shopping Assistant relationships
 assistant --> cart : "RPC\nGet order history"
 assistant --> order : "RPC\nGet orders"
-assistant --> product : "RPC\nGet product details"
 
 ' Add notes
 note right of gateway
