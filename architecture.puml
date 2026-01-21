@@ -21,7 +21,7 @@ package "Golem Cloud" {
     [Cart Agent] as cart #FADBD8
     [Order Agent] as order #E8DAEF
     [Product Search Agent] as product_search #D1F2EB
-    [Shopping Assistant] as assistant #E8F8F5
+    [Shopping Assistant Agent] as assistant #E8F8F5
 }
 
 ' Define relationships
@@ -51,10 +51,10 @@ assistant --> product : "RPC\nGet product details"
 note right of gateway
   <b>API Gateway</b>
   - Routes REST API to agents
-  • /v1/products/** → Product Agent
+  • /v1/product/** → Product Agent
   • /v1/pricing/** → Pricing Agent
   • /v1/cart/** → Cart Agent
-  • /v1/orders/** → Order Agent
+  • /v1/order/** → Order Agent
   • /v1/assistant/** → Shopping Assistant Agent
   • /v1/product/search → Product Search Agent
   - Transforms REST to Golem RPC
@@ -103,10 +103,9 @@ end note
 assistant --> llm : "API Call"
 
 note right of assistant
-  <b>Shopping Assistant</b>
+  <b>Shopping Assistant Agent</b>
   - Provides AI-powered shopping assistance
-  - Can search and recommend products
-  - Can manage cart items
+  - Personalized product and brand recommendations based on shopping history
   - State managed by Golem Cloud
 end note
 

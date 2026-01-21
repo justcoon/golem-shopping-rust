@@ -496,7 +496,7 @@ export API_HOST=http://localhost:9006
 cargo run --release -- --report-file=report.html --no-reset-metrics
 ```
 
-See [benchmarks/README.md](https://github.com/justcoon/golem-shopping/blob/main/benchmarks/README.md) for more details
+See [benchmarks/README.md](https://github.com/justcoon/golem-shopping-rust/blob/main/benchmark/README.md) for more details
 
 ## Benefits of This Architecture
 
