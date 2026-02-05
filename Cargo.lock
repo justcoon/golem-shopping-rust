@@ -352,9 +352,9 @@ dependencies = [
 
 [[package]]
 name = "golem-rust"
-version = "1.10.4"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9167b3a01b2905a2b2491021e759a65c0f7204beed6efcfe710a613f2a0db637"
+checksum = "6baba119a86ac20be1f24b5103585ef7c017462bd3dad3b3e738f66b4a6cfa6f"
 dependencies = [
  "async-trait",
  "chrono",
@@ -374,9 +374,9 @@ dependencies = [
 
 [[package]]
 name = "golem-rust-macro"
-version = "1.10.4"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c4f3bbb1a8c1bed95f4b4d9120c33ebdce1fa68a377b6345089d87ce670ff6d"
+checksum = "707e94c2b7551168c4ceca19250fa03b591408569c34b294fae7361a8f4133c9"
 dependencies = [
  "heck 0.5.0",
  "proc-macro-crate",
