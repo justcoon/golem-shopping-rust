@@ -1,4 +1,4 @@
-use golem_rust::{agent_definition, agent_implementation, Schema};
+use golem_rust::{Schema, agent_definition, agent_implementation};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

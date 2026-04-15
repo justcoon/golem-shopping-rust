@@ -5,7 +5,7 @@ use crate::product::{Product, ProductAgentClient};
 use crate::shopping_assistant::ShoppingAssistantAgentClient;
 use email_address::EmailAddress;
 use futures::future::join;
-use golem_rust::{agent_definition, agent_implementation, Schema};
+use golem_rust::{Schema, agent_definition, agent_implementation};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use uuid::Uuid;
@@ -423,7 +423,7 @@ impl CartAgent for CartAgentImpl {
                 _ => {
                     return Err(AddItemError::PricingNotFound(PricingNotFoundError::new(
                         product_id,
-                    )))
+                    )));
                 }
             }
         }

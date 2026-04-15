@@ -1,8 +1,8 @@
 use crate::product::{Product, ProductAgentClient};
 use futures::future::join_all;
 use golem_rust::bindings::golem::api::host::{
-    resolve_component_id, AgentAllFilter, AgentAnyFilter, AgentNameFilter, AgentPropertyFilter,
-    GetAgents, StringFilterComparator,
+    AgentAllFilter, AgentAnyFilter, AgentNameFilter, AgentPropertyFilter, GetAgents,
+    StringFilterComparator, resolve_component_id,
 };
 use golem_rust::golem_wasm::ComponentId;
 use golem_rust::{agent_definition, agent_implementation};
