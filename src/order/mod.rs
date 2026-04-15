@@ -3,7 +3,8 @@ use crate::pricing::PricingAgentClient;
 use crate::product::ProductAgentClient;
 use email_address::EmailAddress;
 use futures::future::join;
-use golem_rust::{Schema, agent_definition, agent_implementation};
+use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -253,6 +254,16 @@ pub enum UpdateAddressError {
     ActionNotAllowed(ActionNotAllowedError),
 }
 
+#[derive(Schema, Clone, Serialize, Deserialize)]
+pub struct AddItemRequest {
+    pub quantity: u32,
+}
+
+#[derive(Schema, Clone, Serialize, Deserialize)]
+pub struct UpdateEmailRequest {
+    pub email: String,
+}
+
 fn get_total_price(items: Vec<OrderItem>) -> f32 {
     let mut total = 0f32;
 
@@ -263,22 +274,43 @@ fn get_total_price(items: Vec<OrderItem>) -> f32 {
     total
 }
 
-#[agent_definition]
+#[agent_definition(mount = "/v1/order/{id}")]
 trait OrderAgent {
     fn new(id: String) -> Self;
     fn initialize_order(&mut self, data: CreateOrder) -> Result<(), InitOrderError>;
+
+    #[endpoint(get = "/")]
     fn get_order(&self) -> Option<Order>;
-    async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError>;
-    fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError>;
+
+    #[endpoint(put = "/items/{product_id}")]
+    async fn add_item(
+        &mut self,
+        product_id: String,
+        request: AddItemRequest,
+    ) -> Result<(), AddItemError>;
+
+    #[endpoint(put = "/email")]
+    fn update_email(&mut self, request: UpdateEmailRequest) -> Result<(), UpdateEmailError>;
+
+    #[endpoint(delete = "/items/{product_id}")]
     fn remove_item(&mut self, product_id: String) -> Result<(), RemoveItemError>;
+
+    #[endpoint(put = "/billing-address")]
     fn update_billing_address(&mut self, address: Address) -> Result<(), UpdateAddressError>;
+
     fn update_item_quantity(
         &mut self,
         product_id: String,
         quantity: u32,
     ) -> Result<(), UpdateItemQuantityError>;
+
+    #[endpoint(put = "/shipping-address")]
     fn update_shipping_address(&mut self, address: Address) -> Result<(), UpdateAddressError>;
+
+    #[endpoint(post = "/ship-order")]
     fn ship_order(&mut self) -> Result<(), ShipOrderError>;
+
+    #[endpoint(post = "/cancel-order")]
     fn cancel_order(&mut self) -> Result<(), CancelOrderError>;
 }
 
@@ -313,7 +345,7 @@ impl OrderAgent for OrderAgentImpl {
 
     fn initialize_order(&mut self, data: CreateOrder) -> Result<(), InitOrderError> {
         self.with_state(|state| {
-            println!(
+            info!(
                 "Initializing order {} for user {}",
                 state.order_id, data.user_id
             );
@@ -335,17 +367,17 @@ impl OrderAgent for OrderAgentImpl {
         })
     }
 
-    fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError> {
+    fn update_email(&mut self, request: UpdateEmailRequest) -> Result<(), UpdateEmailError> {
         self.with_state(|state| {
-            println!(
+            info!(
                 "Updating email {} for the order {} of user {}",
-                email, state.order_id, state.user_id
+                request.email, state.order_id, state.user_id
             );
 
             if state.order_status == OrderStatus::New {
-                match EmailAddress::from_str(email.as_str()) {
+                match EmailAddress::from_str(request.email.as_str()) {
                     Ok(_) => {
-                        state.set_email(email);
+                        state.set_email(request.email);
                         Ok(())
                     }
                     Err(e) => Err(UpdateEmailError::EmailNotValid(EmailNotValidError {
@@ -360,16 +392,20 @@ impl OrderAgent for OrderAgentImpl {
         })
     }
 
-    async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError> {
+    async fn add_item(
+        &mut self,
+        product_id: String,
+        request: AddItemRequest,
+    ) -> Result<(), AddItemError> {
         let state = self.get_state();
 
-        println!(
+        info!(
             "Adding item with product {} to the order {} of user {}",
             product_id, state.order_id, state.user_id
         );
 
         if state.order_status == OrderStatus::New {
-            let updated = state.update_item_quantity(product_id.clone(), quantity, true);
+            let updated = state.update_item_quantity(product_id.clone(), request.quantity, true);
 
             if !updated {
                 let product_client = ProductAgentClient::get(product_id.clone());
@@ -388,7 +424,7 @@ impl OrderAgent for OrderAgentImpl {
                             product_name: product.name,
                             product_brand: product.brand,
                             price: pricing.price,
-                            quantity,
+                            quantity: request.quantity,
                         });
                     }
                     (None, _) => {
@@ -414,7 +450,7 @@ impl OrderAgent for OrderAgentImpl {
 
     fn remove_item(&mut self, product_id: String) -> Result<(), RemoveItemError> {
         self.with_state(|state| {
-            println!(
+            info!(
                 "Removing item with product {} from the order {} of user {}",
                 product_id, state.order_id, state.user_id
             );
@@ -436,7 +472,7 @@ impl OrderAgent for OrderAgentImpl {
 
     fn update_billing_address(&mut self, address: Address) -> Result<(), UpdateAddressError> {
         self.with_state(|state| {
-            println!(
+            info!(
                 "Updating billing address in the order {} of user {}",
                 state.order_id, state.user_id
             );
@@ -457,7 +493,7 @@ impl OrderAgent for OrderAgentImpl {
         quantity: u32,
     ) -> Result<(), UpdateItemQuantityError> {
         self.with_state(|state| {
-            println!(
+            info!(
                 "Updating quantity of item with product {} to {} in the order {} of user {}",
                 product_id, quantity, state.order_id, state.user_id
             );
@@ -481,7 +517,7 @@ impl OrderAgent for OrderAgentImpl {
 
     fn update_shipping_address(&mut self, address: Address) -> Result<(), UpdateAddressError> {
         self.with_state(|state| {
-            println!(
+            info!(
                 "Updating shipping address in the order {} of user {}",
                 state.order_id, state.user_id
             );
@@ -498,7 +534,7 @@ impl OrderAgent for OrderAgentImpl {
 
     fn ship_order(&mut self) -> Result<(), ShipOrderError> {
         self.with_state(|state| {
-            println!(
+            info!(
                 "Shipping order {} of user {}",
                 state.order_id, state.user_id
             );
@@ -529,20 +565,20 @@ impl OrderAgent for OrderAgentImpl {
 
     fn cancel_order(&mut self) -> Result<(), CancelOrderError> {
         self.with_state(|state| {
-            println!(
+            info!(
                 "Cancelling order {} of user {}",
                 state.order_id, state.user_id
             );
 
             if state.order_status == OrderStatus::New {
-                println!(
+                info!(
                     "Cancelling order {} of user {}",
                     state.order_id, state.user_id
                 );
                 state.set_order_status(OrderStatus::Cancelled);
                 Ok(())
             } else {
-                println!(
+                info!(
                     "Cancelling order {} of user {}",
                     state.order_id, state.user_id
                 );

@@ -5,7 +5,3 @@ pub mod pricing;
 pub mod product;
 pub mod product_search;
 pub mod shopping_assistant;
-
-mod tasks;
-
-pub use tasks::*;

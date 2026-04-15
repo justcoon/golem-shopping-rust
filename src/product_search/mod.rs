@@ -5,7 +5,8 @@ use golem_rust::bindings::golem::api::host::{
     StringFilterComparator, resolve_component_id,
 };
 use golem_rust::golem_wasm::ComponentId;
-use golem_rust::{agent_definition, agent_implementation};
+use golem_rust::{agent_definition, agent_implementation, endpoint};
+use log::info;
 use regex::Regex;
 use std::collections::HashSet;
 
@@ -155,10 +156,11 @@ async fn get_products(
     Ok(result)
 }
 
-#[agent_definition(mode = "ephemeral")]
+#[agent_definition(mode = "ephemeral", mount = "/v1/product/search")]
 trait ProductSearchAgent {
     fn new() -> Self;
 
+    #[endpoint(get = "/?query={query}")]
     async fn search(&self, query: String) -> Result<Vec<Product>, String>;
 }
 
@@ -175,7 +177,7 @@ impl ProductSearchAgent for ProductSearchAgentImpl {
 
     async fn search(&self, query: String) -> Result<Vec<Product>, String> {
         if let Some(component_id) = self.component_id {
-            println!("searching for products - query: {}", query);
+            info!("searching for products - query: {}", query);
 
             let mut values: Vec<Product> = Vec::new();
             let matcher = ProductQueryMatcher::new(&query);

@@ -1,4 +1,5 @@
-use golem_rust::{Schema, agent_definition, agent_implementation};
+use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -74,6 +75,13 @@ pub struct SalePricingItem {
     pub region: String,
     pub start: Option<chrono::DateTime<chrono::Utc>>,
     pub end: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Schema, Clone, Serialize, Deserialize)]
+pub struct PricingRequest {
+    pub msrp_prices: Vec<PricingItem>,
+    pub list_prices: Vec<PricingItem>,
+    pub sale_prices: Vec<SalePricingItem>,
 }
 
 impl SalePricingItem {
@@ -193,27 +201,20 @@ fn merge_sale_items(
     }
 }
 
-#[agent_definition]
+#[agent_definition(mount = "/v1/pricing/{id}")]
 trait PricingAgent {
     fn new(id: String) -> Self;
 
+    #[endpoint(get = "/")]
     fn get_pricing(&self) -> Option<Pricing>;
 
     fn get_price(&self, currency: String, region: String) -> Option<PricingItem>;
 
-    fn initialize_pricing(
-        &mut self,
-        msrp_prices: Vec<PricingItem>,
-        list_prices: Vec<PricingItem>,
-        sale_prices: Vec<SalePricingItem>,
-    );
+    #[endpoint(post = "/")]
+    fn initialize_pricing(&mut self, request: PricingRequest);
 
-    fn update_pricing(
-        &mut self,
-        msrp_prices: Vec<PricingItem>,
-        list_prices: Vec<PricingItem>,
-        sale_prices: Vec<SalePricingItem>,
-    );
+    #[endpoint(put = "/")]
+    fn update_pricing(&mut self, request: PricingRequest);
 }
 
 struct PricingAgentImpl {
@@ -237,7 +238,7 @@ impl PricingAgent for PricingAgentImpl {
     }
 
     fn get_price(&self, currency: String, region: String) -> Option<PricingItem> {
-        println!(
+        info!(
             "Getting pricing for currency: {} region: {}",
             currency, region
         );
@@ -250,24 +251,20 @@ impl PricingAgent for PricingAgentImpl {
         self.state.clone()
     }
 
-    fn initialize_pricing(
-        &mut self,
-        msrp_prices: Vec<PricingItem>,
-        list_prices: Vec<PricingItem>,
-        sale_prices: Vec<SalePricingItem>,
-    ) {
-        self.get_state()
-            .set_prices(msrp_prices, list_prices, sale_prices);
+    fn initialize_pricing(&mut self, request: PricingRequest) {
+        self.get_state().set_prices(
+            request.msrp_prices,
+            request.list_prices,
+            request.sale_prices,
+        );
     }
 
-    fn update_pricing(
-        &mut self,
-        msrp_prices: Vec<PricingItem>,
-        list_prices: Vec<PricingItem>,
-        sale_prices: Vec<SalePricingItem>,
-    ) {
-        self.get_state()
-            .update_prices(msrp_prices, list_prices, sale_prices);
+    fn update_pricing(&mut self, request: PricingRequest) {
+        self.get_state().update_prices(
+            request.msrp_prices,
+            request.list_prices,
+            request.sale_prices,
+        );
     }
 
     async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {

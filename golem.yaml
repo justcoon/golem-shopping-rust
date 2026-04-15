@@ -36,4 +36,9 @@ httpApi:
     local:
     - domain: localhost:9006
       agents:
-        Tasks: {}
+        ProductAgent: {}
+        PricingAgent: {}
+        ProductSearchAgent: {}
+        CartAgent: {}
+        OrderAgent: {}
+        ShoppingAssistantAgent: {}

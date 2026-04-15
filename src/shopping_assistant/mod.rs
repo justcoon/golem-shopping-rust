@@ -2,7 +2,7 @@ use crate::cart::CartAgentClient;
 use crate::order::{OrderAgentClient, OrderItem};
 use futures::future::join_all;
 // use golem_rust::golem_ai::golem::llm::llm;
-use golem_rust::{Schema, agent_definition, agent_implementation};
+use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -57,7 +57,7 @@ fn reduce_order_items(items: Vec<OrderItem>) -> Vec<OrderItem> {
 }
 
 async fn get_llm_recommendations(items: Vec<OrderItem>) -> Result<LlmRecommendedItems, String> {
-    println!("LLM recommendations - items: {}", items.len());
+    log::info!("LLM recommendations - items: {}", items.len());
 
     Ok(LlmRecommendedItems {
         product_ids: vec![],
@@ -177,10 +177,11 @@ pub struct RecommendedItems {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[agent_definition]
+#[agent_definition(mount = "/v1/assistant/{id}")]
 trait ShoppingAssistantAgent {
     fn new(id: String) -> Self;
 
+    #[endpoint(get = "/recommended-items")]
     fn get_recommended_items(&self) -> RecommendedItems;
 
     async fn recommend_items(&mut self) -> bool;
@@ -214,7 +215,7 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
 
         match recommended_items {
             Ok(recommended_items) => {
-                println!(
+                log::info!(
                     "Recommended items - product count: {}, product brands count: {}",
                     recommended_items.product_ids.len(),
                     recommended_items.product_brands.len()
@@ -227,7 +228,7 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
                 true
             }
             Err(e) => {
-                println!("Recommended items - error: {}", e);
+                log::error!("Recommended items - error: {}", e);
                 false
             }
         }

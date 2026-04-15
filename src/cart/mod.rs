@@ -5,7 +5,8 @@ use crate::product::{Product, ProductAgentClient};
 use crate::shopping_assistant::ShoppingAssistantAgentClient;
 use email_address::EmailAddress;
 use futures::future::join;
-use golem_rust::{Schema, agent_definition, agent_implementation};
+use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use uuid::Uuid;
@@ -256,6 +257,16 @@ pub struct OrderConfirmation {
     pub order_id: String,
 }
 
+#[derive(Schema, Clone, Serialize, Deserialize)]
+pub struct AddItemRequest {
+    pub quantity: u32,
+}
+
+#[derive(Schema, Clone, Serialize, Deserialize)]
+pub struct UpdateEmailRequest {
+    pub email: String,
+}
+
 fn get_total_price(items: Vec<CartItem>) -> f32 {
     let mut total = 0f32;
 
@@ -301,7 +312,7 @@ fn validate_cart(cart: Cart) -> Result<(), CheckoutError> {
 }
 
 async fn create_order(order_id: String, cart: Cart) -> Result<String, CheckoutError> {
-    println!("Creating order: {}", order_id);
+    info!("Creating order: {}", order_id);
 
     validate_cart(cart.clone())?;
 
@@ -319,21 +330,41 @@ async fn create_order(order_id: String, cart: Cart) -> Result<String, CheckoutEr
     Ok(order_id)
 }
 
-#[agent_definition]
+#[agent_definition(mount = "/v1/cart/{id}")]
 trait CartAgent {
     fn new(id: String) -> Self;
+
+    #[endpoint(get = "/")]
     async fn get_cart(&mut self) -> Option<Cart>;
-    async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError>;
+
+    #[endpoint(put = "/items/{product_id}")]
+    async fn add_item(
+        &mut self,
+        product_id: String,
+        request: AddItemRequest,
+    ) -> Result<(), AddItemError>;
+
+    #[endpoint(post = "/checkout")]
     async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError>;
-    fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError>;
+
+    #[endpoint(put = "/email")]
+    fn update_email(&mut self, request: UpdateEmailRequest) -> Result<(), UpdateEmailError>;
+
     fn clear(&mut self);
+
+    #[endpoint(delete = "/items/{product_id}")]
     fn remove_item(&mut self, product_id: String) -> Result<(), RemoveItemError>;
+
+    #[endpoint(put = "/billing-address")]
     fn update_billing_address(&mut self, address: Address) -> Result<(), UpdateAddressError>;
+
     fn update_item_quantity(
         &mut self,
         product_id: String,
         quantity: u32,
     ) -> Result<(), UpdateItemQuantityError>;
+
+    #[endpoint(put = "/shipping-address")]
     fn update_shipping_address(&mut self, address: Address) -> Result<(), UpdateAddressError>;
 }
 
@@ -362,7 +393,7 @@ impl CartAgent for CartAgentImpl {
     }
 
     async fn get_cart(&mut self) -> Option<Cart> {
-        println!("Getting cart");
+        info!("Getting cart");
         if let Some(cart) = self.state.as_mut() {
             let mut items = Vec::new();
             for item in cart.items.clone() {
@@ -390,15 +421,19 @@ impl CartAgent for CartAgentImpl {
         }
     }
 
-    async fn add_item(&mut self, product_id: String, quantity: u32) -> Result<(), AddItemError> {
+    async fn add_item(
+        &mut self,
+        product_id: String,
+        request: AddItemRequest,
+    ) -> Result<(), AddItemError> {
         let state = self.get_state();
 
-        println!(
+        info!(
             "Adding item with product {} to the cart of user {}",
             product_id, state.user_id
         );
 
-        let updated = state.update_item_quantity(product_id.clone(), quantity, true);
+        let updated = state.update_item_quantity(product_id.clone(), request.quantity, true);
 
         if !updated {
             let product_client = ProductAgentClient::get(product_id.clone());
@@ -413,7 +448,7 @@ impl CartAgent for CartAgentImpl {
 
             match (product, pricing) {
                 (Some(product), Some(pricing)) => {
-                    state.add_item(get_cart_item(product, pricing, quantity));
+                    state.add_item(get_cart_item(product, pricing, request.quantity));
                 }
                 (None, _) => {
                     return Err(AddItemError::ProductNotFound(ProductNotFoundError::new(
@@ -433,7 +468,7 @@ impl CartAgent for CartAgentImpl {
     async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError> {
         let state = self.get_state();
         let order_id = generate_order_id();
-        println!("Checkout for order {}", order_id);
+        info!("Checkout for order {}", order_id);
 
         create_order(order_id.clone(), state.clone()).await?;
 
@@ -444,16 +479,16 @@ impl CartAgent for CartAgentImpl {
         Ok(OrderConfirmation { order_id })
     }
 
-    fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError> {
+    fn update_email(&mut self, request: UpdateEmailRequest) -> Result<(), UpdateEmailError> {
         self.with_state(|state| {
-            println!(
+            info!(
                 "Updating email {} for the cart of user {}",
-                email, state.user_id
+                request.email, state.user_id
             );
 
-            match EmailAddress::from_str(email.as_str()) {
+            match EmailAddress::from_str(request.email.as_str()) {
                 Ok(_) => {
-                    state.set_email(email);
+                    state.set_email(request.email);
                     Ok(())
                 }
                 Err(e) => Err(UpdateEmailError::EmailNotValid(EmailNotValidError {
@@ -465,14 +500,14 @@ impl CartAgent for CartAgentImpl {
 
     fn clear(&mut self) {
         self.with_state(|state| {
-            println!("Clearing the cart of user {}", state.user_id);
+            info!("Clearing the cart of user {}", state.user_id);
             state.clear();
         })
     }
 
     fn remove_item(&mut self, product_id: String) -> Result<(), RemoveItemError> {
         self.with_state(|state| {
-            println!(
+            info!(
                 "Removing item with product {} from the cart of user {}",
                 product_id, state.user_id
             );
@@ -489,7 +524,7 @@ impl CartAgent for CartAgentImpl {
 
     fn update_billing_address(&mut self, address: Address) -> Result<(), UpdateAddressError> {
         self.with_state(|state| {
-            println!(
+            info!(
                 "Updating billing address in the cart of user {}",
                 state.user_id
             );
@@ -505,7 +540,7 @@ impl CartAgent for CartAgentImpl {
         quantity: u32,
     ) -> Result<(), UpdateItemQuantityError> {
         self.with_state(|state| {
-            println!(
+            info!(
                 "Updating quantity of item with product {} to {} in the cart of user {}",
                 product_id, quantity, state.user_id
             );
@@ -524,7 +559,7 @@ impl CartAgent for CartAgentImpl {
 
     fn update_shipping_address(&mut self, address: Address) -> Result<(), UpdateAddressError> {
         self.with_state(|state| {
-            println!(
+            info!(
                 "Updating shipping address in the cart of user {}",
                 state.user_id
             );
