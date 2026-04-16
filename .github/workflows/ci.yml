@@ -13,15 +13,15 @@ on:
         description: Golem version
         type: choice
         required: false
-        default: 1.4.2
+        default: 1.5.0-rc2
         options:
           - latest
           - master
-          - 1.4.2
+          - 1.5.0-rc2
 
 env:
   CARGO_TERM_COLOR: always
-  GOLEM_VERSION: ${{ github.event.inputs.golemversion != '' && github.event.inputs.golemversion || '1.4.2' }}
+  GOLEM_VERSION: ${{ github.event.inputs.golemversion != '' && github.event.inputs.golemversion || '1.5.0-rc2' }}
 
 jobs:
   setup-environment:
@@ -37,7 +37,7 @@ jobs:
         uses: arduino/setup-protoc@v3
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.x"
+          node-version: "24.x"
       - uses: pnpm/action-setup@v2
         with:
           version: latest
