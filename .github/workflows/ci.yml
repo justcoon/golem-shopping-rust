@@ -113,6 +113,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+      - name: Install Rust wasm32-wasip2 target
+        run: rustup target add wasm32-wasip2
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@v1.15.1
       - name: Install cargo-component
