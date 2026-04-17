@@ -254,15 +254,7 @@ pub enum UpdateAddressError {
     ActionNotAllowed(ActionNotAllowedError),
 }
 
-#[derive(Schema, Clone, Serialize, Deserialize)]
-pub struct AddItemRequest {
-    pub quantity: u32,
-}
 
-#[derive(Schema, Clone, Serialize, Deserialize)]
-pub struct UpdateEmailRequest {
-    pub email: String,
-}
 
 fn get_total_price(items: Vec<OrderItem>) -> f32 {
     let mut total = 0f32;
@@ -286,11 +278,11 @@ trait OrderAgent {
     async fn add_item(
         &mut self,
         product_id: String,
-        request: AddItemRequest,
+        quantity: u32,
     ) -> Result<(), AddItemError>;
 
     #[endpoint(put = "/email")]
-    fn update_email(&mut self, request: UpdateEmailRequest) -> Result<(), UpdateEmailError>;
+    fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError>;
 
     #[endpoint(delete = "/items/{product_id}")]
     fn remove_item(&mut self, product_id: String) -> Result<(), RemoveItemError>;
@@ -367,17 +359,17 @@ impl OrderAgent for OrderAgentImpl {
         })
     }
 
-    fn update_email(&mut self, request: UpdateEmailRequest) -> Result<(), UpdateEmailError> {
+    fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError> {
         self.with_state(|state| {
             info!(
                 "Updating email {} for the order {} of user {}",
-                request.email, state.order_id, state.user_id
+                email, state.order_id, state.user_id
             );
 
             if state.order_status == OrderStatus::New {
-                match EmailAddress::from_str(request.email.as_str()) {
+                match EmailAddress::from_str(email.as_str()) {
                     Ok(_) => {
-                        state.set_email(request.email);
+                        state.set_email(email);
                         Ok(())
                     }
                     Err(e) => Err(UpdateEmailError::EmailNotValid(EmailNotValidError {
@@ -395,7 +387,7 @@ impl OrderAgent for OrderAgentImpl {
     async fn add_item(
         &mut self,
         product_id: String,
-        request: AddItemRequest,
+        quantity: u32,
     ) -> Result<(), AddItemError> {
         let state = self.get_state();
 
@@ -405,7 +397,7 @@ impl OrderAgent for OrderAgentImpl {
         );
 
         if state.order_status == OrderStatus::New {
-            let updated = state.update_item_quantity(product_id.clone(), request.quantity, true);
+            let updated = state.update_item_quantity(product_id.clone(), quantity, true);
 
             if !updated {
                 let product_client = ProductAgentClient::get(product_id.clone());
@@ -424,7 +416,7 @@ impl OrderAgent for OrderAgentImpl {
                             product_name: product.name,
                             product_brand: product.brand,
                             price: pricing.price,
-                            quantity: request.quantity,
+                            quantity,
                         });
                     }
                     (None, _) => {

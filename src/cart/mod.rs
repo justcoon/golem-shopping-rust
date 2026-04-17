@@ -257,15 +257,7 @@ pub struct OrderConfirmation {
     pub order_id: String,
 }
 
-#[derive(Schema, Clone, Serialize, Deserialize)]
-pub struct AddItemRequest {
-    pub quantity: u32,
-}
 
-#[derive(Schema, Clone, Serialize, Deserialize)]
-pub struct UpdateEmailRequest {
-    pub email: String,
-}
 
 fn get_total_price(items: Vec<CartItem>) -> f32 {
     let mut total = 0f32;
@@ -341,14 +333,14 @@ trait CartAgent {
     async fn add_item(
         &mut self,
         product_id: String,
-        request: AddItemRequest,
+        quantity: u32,
     ) -> Result<(), AddItemError>;
 
     #[endpoint(post = "/checkout")]
     async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError>;
 
     #[endpoint(put = "/email")]
-    fn update_email(&mut self, request: UpdateEmailRequest) -> Result<(), UpdateEmailError>;
+    fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError>;
 
     fn clear(&mut self);
 
@@ -424,7 +416,7 @@ impl CartAgent for CartAgentImpl {
     async fn add_item(
         &mut self,
         product_id: String,
-        request: AddItemRequest,
+        quantity: u32,
     ) -> Result<(), AddItemError> {
         let state = self.get_state();
 
@@ -433,7 +425,7 @@ impl CartAgent for CartAgentImpl {
             product_id, state.user_id
         );
 
-        let updated = state.update_item_quantity(product_id.clone(), request.quantity, true);
+        let updated = state.update_item_quantity(product_id.clone(), quantity, true);
 
         if !updated {
             let product_client = ProductAgentClient::get(product_id.clone());
@@ -448,7 +440,7 @@ impl CartAgent for CartAgentImpl {
 
             match (product, pricing) {
                 (Some(product), Some(pricing)) => {
-                    state.add_item(get_cart_item(product, pricing, request.quantity));
+                    state.add_item(get_cart_item(product, pricing, quantity));
                 }
                 (None, _) => {
                     return Err(AddItemError::ProductNotFound(ProductNotFoundError::new(
@@ -479,16 +471,16 @@ impl CartAgent for CartAgentImpl {
         Ok(OrderConfirmation { order_id })
     }
 
-    fn update_email(&mut self, request: UpdateEmailRequest) -> Result<(), UpdateEmailError> {
+    fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError> {
         self.with_state(|state| {
             info!(
                 "Updating email {} for the cart of user {}",
-                request.email, state.user_id
+                email, state.user_id
             );
 
-            match EmailAddress::from_str(request.email.as_str()) {
+            match EmailAddress::from_str(email.as_str()) {
                 Ok(_) => {
-                    state.set_email(request.email);
+                    state.set_email(email);
                     Ok(())
                 }
                 Err(e) => Err(UpdateEmailError::EmailNotValid(EmailNotValidError {

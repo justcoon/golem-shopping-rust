@@ -12,13 +12,6 @@ pub struct Product {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Schema, Clone, Serialize, Deserialize)]
-pub struct InitializeProductRequest {
-    pub name: String,
-    pub brand: String,
-    pub description: String,
-    pub tags: Vec<String>,
-}
 
 #[agent_definition(mount = "/v1/product/{id}")]
 trait ProductAgent {
@@ -28,7 +21,13 @@ trait ProductAgent {
     fn get_product(&self) -> Option<Product>;
 
     #[endpoint(post = "/")]
-    fn initialize_product(&mut self, request: InitializeProductRequest);
+    fn initialize_product(
+        &mut self,
+        name: String,
+        brand: String,
+        description: String,
+        tags: Vec<String>,
+    );
 }
 
 struct ProductAgentImpl {
@@ -49,14 +48,20 @@ impl ProductAgent for ProductAgentImpl {
         self.state.clone()
     }
 
-    fn initialize_product(&mut self, request: InitializeProductRequest) {
+    fn initialize_product(
+        &mut self,
+        name: String,
+        brand: String,
+        description: String,
+        tags: Vec<String>,
+    ) {
         let now = chrono::Utc::now();
         self.state = Some(Product {
             product_id: self._id.clone(),
-            name: request.name,
-            brand: request.brand,
-            description: request.description,
-            tags: request.tags,
+            name,
+            brand,
+            description,
+            tags,
             created_at: now,
             updated_at: now,
         });

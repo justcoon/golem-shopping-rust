@@ -77,12 +77,6 @@ pub struct SalePricingItem {
     pub end: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-#[derive(Schema, Clone, Serialize, Deserialize)]
-pub struct PricingRequest {
-    pub msrp_prices: Vec<PricingItem>,
-    pub list_prices: Vec<PricingItem>,
-    pub sale_prices: Vec<SalePricingItem>,
-}
 
 impl SalePricingItem {
     fn key(
@@ -211,10 +205,20 @@ trait PricingAgent {
     fn get_price(&self, currency: String, region: String) -> Option<PricingItem>;
 
     #[endpoint(post = "/")]
-    fn initialize_pricing(&mut self, request: PricingRequest);
+    fn initialize_pricing(
+        &mut self,
+        msrp_prices: Vec<PricingItem>,
+        list_prices: Vec<PricingItem>,
+        sale_prices: Vec<SalePricingItem>,
+    );
 
     #[endpoint(put = "/")]
-    fn update_pricing(&mut self, request: PricingRequest);
+    fn update_pricing(
+        &mut self,
+        msrp_prices: Vec<PricingItem>,
+        list_prices: Vec<PricingItem>,
+        sale_prices: Vec<SalePricingItem>,
+    );
 }
 
 struct PricingAgentImpl {
@@ -251,20 +255,22 @@ impl PricingAgent for PricingAgentImpl {
         self.state.clone()
     }
 
-    fn initialize_pricing(&mut self, request: PricingRequest) {
-        self.get_state().set_prices(
-            request.msrp_prices,
-            request.list_prices,
-            request.sale_prices,
-        );
+    fn initialize_pricing(
+        &mut self,
+        msrp_prices: Vec<PricingItem>,
+        list_prices: Vec<PricingItem>,
+        sale_prices: Vec<SalePricingItem>,
+    ) {
+        self.get_state().set_prices(msrp_prices, list_prices, sale_prices);
     }
 
-    fn update_pricing(&mut self, request: PricingRequest) {
-        self.get_state().update_prices(
-            request.msrp_prices,
-            request.list_prices,
-            request.sale_prices,
-        );
+    fn update_pricing(
+        &mut self,
+        msrp_prices: Vec<PricingItem>,
+        list_prices: Vec<PricingItem>,
+        sale_prices: Vec<SalePricingItem>,
+    ) {
+        self.get_state().update_prices(msrp_prices, list_prices, sale_prices);
     }
 
     async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
