@@ -123,6 +123,32 @@ jobs:
         uses: arduino/setup-protoc@v3
       - name: Compile
         run: golem-cli build
+      - name: Start Golem server
+        run: |
+          golem server run &
+          SERVER_PID=$!
+          echo "Server PID: $SERVER_PID"
+          echo "Waiting for Golem server to start..."
+          for i in {1..30}; do
+            if curl -s http://localhost:9881/healthcheck > /dev/null; then
+              echo "Golem server is ready"
+              break
+            fi
+            echo "Attempt $i: Server not ready yet..."
+            sleep 2
+          done
+      - name: Deploy components
+        run: golem deploy --reset --yes
+      - name: Smoke test deployment
+        run: |
+          echo "Testing basic deployment..."
+          golem component list
+          echo "Deployment test completed successfully"
+      - name: Verify OpenAPI spec
+        run: |
+          echo "Fetching OpenAPI specification..."
+          curl http://localhost:9006/openapi.yaml
+          echo "OpenAPI spec verification completed"
       - name: Save components
         uses: actions/upload-artifact@v4
         with:
