@@ -12,7 +12,6 @@ pub struct Product {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-
 #[agent_definition(mount = "/v1/product/{id}")]
 trait ProductAgent {
     fn new(id: String) -> Self;

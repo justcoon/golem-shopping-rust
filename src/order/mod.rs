@@ -254,7 +254,11 @@ pub enum UpdateAddressError {
     ActionNotAllowed(ActionNotAllowedError),
 }
 
-
+#[derive(Schema, Clone)]
+pub struct OrderUpdated {
+    pub order_id: String,
+    pub user_id: String,
+}
 
 fn get_total_price(items: Vec<OrderItem>) -> f32 {
     let mut total = 0f32;
@@ -269,7 +273,7 @@ fn get_total_price(items: Vec<OrderItem>) -> f32 {
 #[agent_definition(mount = "/v1/order/{id}")]
 trait OrderAgent {
     fn new(id: String) -> Self;
-    fn initialize_order(&mut self, data: CreateOrder) -> Result<(), InitOrderError>;
+    fn initialize_order(&mut self, data: CreateOrder) -> Result<OrderUpdated, InitOrderError>;
 
     #[endpoint(get = "/")]
     fn get_order(&self) -> Option<Order>;
@@ -279,31 +283,37 @@ trait OrderAgent {
         &mut self,
         product_id: String,
         quantity: u32,
-    ) -> Result<(), AddItemError>;
+    ) -> Result<OrderUpdated, AddItemError>;
 
     #[endpoint(put = "/email")]
-    fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError>;
+    fn update_email(&mut self, email: String) -> Result<OrderUpdated, UpdateEmailError>;
 
     #[endpoint(delete = "/items/{product_id}")]
-    fn remove_item(&mut self, product_id: String) -> Result<(), RemoveItemError>;
+    fn remove_item(&mut self, product_id: String) -> Result<OrderUpdated, RemoveItemError>;
 
     #[endpoint(put = "/billing-address")]
-    fn update_billing_address(&mut self, address: Address) -> Result<(), UpdateAddressError>;
+    fn update_billing_address(
+        &mut self,
+        address: Address,
+    ) -> Result<OrderUpdated, UpdateAddressError>;
 
     fn update_item_quantity(
         &mut self,
         product_id: String,
         quantity: u32,
-    ) -> Result<(), UpdateItemQuantityError>;
+    ) -> Result<OrderUpdated, UpdateItemQuantityError>;
 
     #[endpoint(put = "/shipping-address")]
-    fn update_shipping_address(&mut self, address: Address) -> Result<(), UpdateAddressError>;
+    fn update_shipping_address(
+        &mut self,
+        address: Address,
+    ) -> Result<OrderUpdated, UpdateAddressError>;
 
     #[endpoint(post = "/ship-order")]
-    fn ship_order(&mut self) -> Result<(), ShipOrderError>;
+    fn ship_order(&mut self) -> Result<OrderUpdated, ShipOrderError>;
 
     #[endpoint(post = "/cancel-order")]
-    fn cancel_order(&mut self) -> Result<(), CancelOrderError>;
+    fn cancel_order(&mut self) -> Result<OrderUpdated, CancelOrderError>;
 }
 
 struct OrderAgentImpl {
@@ -335,7 +345,7 @@ impl OrderAgent for OrderAgentImpl {
         self.state.clone()
     }
 
-    fn initialize_order(&mut self, data: CreateOrder) -> Result<(), InitOrderError> {
+    fn initialize_order(&mut self, data: CreateOrder) -> Result<OrderUpdated, InitOrderError> {
         self.with_state(|state| {
             info!(
                 "Initializing order {} for user {}",
@@ -350,7 +360,10 @@ impl OrderAgent for OrderAgentImpl {
                 state.total = data.total;
                 state.currency = data.currency;
 
-                Ok(())
+                Ok(OrderUpdated {
+                    order_id: state.order_id.clone(),
+                    user_id: state.user_id.clone(),
+                })
             } else {
                 Err(InitOrderError::ActionNotAllowed(
                     ActionNotAllowedError::new(state.order_status),
@@ -359,7 +372,7 @@ impl OrderAgent for OrderAgentImpl {
         })
     }
 
-    fn update_email(&mut self, email: String) -> Result<(), UpdateEmailError> {
+    fn update_email(&mut self, email: String) -> Result<OrderUpdated, UpdateEmailError> {
         self.with_state(|state| {
             info!(
                 "Updating email {} for the order {} of user {}",
@@ -370,7 +383,10 @@ impl OrderAgent for OrderAgentImpl {
                 match EmailAddress::from_str(email.as_str()) {
                     Ok(_) => {
                         state.set_email(email);
-                        Ok(())
+                        Ok(OrderUpdated {
+                            order_id: state.order_id.clone(),
+                            user_id: state.user_id.clone(),
+                        })
                     }
                     Err(e) => Err(UpdateEmailError::EmailNotValid(EmailNotValidError {
                         message: format!("Invalid email: {e}"),
@@ -388,7 +404,7 @@ impl OrderAgent for OrderAgentImpl {
         &mut self,
         product_id: String,
         quantity: u32,
-    ) -> Result<(), AddItemError> {
+    ) -> Result<OrderUpdated, AddItemError> {
         let state = self.get_state();
 
         info!(
@@ -432,7 +448,10 @@ impl OrderAgent for OrderAgentImpl {
                 }
             }
 
-            Ok(())
+            Ok(OrderUpdated {
+                order_id: state.order_id.clone(),
+                user_id: state.user_id.clone(),
+            })
         } else {
             Err(AddItemError::ActionNotAllowed(ActionNotAllowedError::new(
                 state.order_status,
@@ -440,7 +459,7 @@ impl OrderAgent for OrderAgentImpl {
         }
     }
 
-    fn remove_item(&mut self, product_id: String) -> Result<(), RemoveItemError> {
+    fn remove_item(&mut self, product_id: String) -> Result<OrderUpdated, RemoveItemError> {
         self.with_state(|state| {
             info!(
                 "Removing item with product {} from the order {} of user {}",
@@ -448,7 +467,10 @@ impl OrderAgent for OrderAgentImpl {
             );
             if state.order_status == OrderStatus::New {
                 if state.remove_item(product_id.clone()) {
-                    Ok(())
+                    Ok(OrderUpdated {
+                        order_id: state.order_id.clone(),
+                        user_id: state.user_id.clone(),
+                    })
                 } else {
                     Err(RemoveItemError::ItemNotFound(ItemNotFoundError::new(
                         product_id,
@@ -462,7 +484,10 @@ impl OrderAgent for OrderAgentImpl {
         })
     }
 
-    fn update_billing_address(&mut self, address: Address) -> Result<(), UpdateAddressError> {
+    fn update_billing_address(
+        &mut self,
+        address: Address,
+    ) -> Result<OrderUpdated, UpdateAddressError> {
         self.with_state(|state| {
             info!(
                 "Updating billing address in the order {} of user {}",
@@ -470,7 +495,10 @@ impl OrderAgent for OrderAgentImpl {
             );
             if state.order_status == OrderStatus::New {
                 state.set_billing_address(address);
-                Ok(())
+                Ok(OrderUpdated {
+                    order_id: state.order_id.clone(),
+                    user_id: state.user_id.clone(),
+                })
             } else {
                 Err(UpdateAddressError::ActionNotAllowed(
                     ActionNotAllowedError::new(state.order_status),
@@ -483,7 +511,7 @@ impl OrderAgent for OrderAgentImpl {
         &mut self,
         product_id: String,
         quantity: u32,
-    ) -> Result<(), UpdateItemQuantityError> {
+    ) -> Result<OrderUpdated, UpdateItemQuantityError> {
         self.with_state(|state| {
             info!(
                 "Updating quantity of item with product {} to {} in the order {} of user {}",
@@ -493,7 +521,10 @@ impl OrderAgent for OrderAgentImpl {
                 let updated = state.update_item_quantity(product_id.clone(), quantity, false);
 
                 if updated {
-                    Ok(())
+                    Ok(OrderUpdated {
+                        order_id: state.order_id.clone(),
+                        user_id: state.user_id.clone(),
+                    })
                 } else {
                     Err(UpdateItemQuantityError::ItemNotFound(
                         ItemNotFoundError::new(product_id),
@@ -507,7 +538,10 @@ impl OrderAgent for OrderAgentImpl {
         })
     }
 
-    fn update_shipping_address(&mut self, address: Address) -> Result<(), UpdateAddressError> {
+    fn update_shipping_address(
+        &mut self,
+        address: Address,
+    ) -> Result<OrderUpdated, UpdateAddressError> {
         self.with_state(|state| {
             info!(
                 "Updating shipping address in the order {} of user {}",
@@ -515,7 +549,10 @@ impl OrderAgent for OrderAgentImpl {
             );
             if state.order_status == OrderStatus::New {
                 state.set_shipping_address(address);
-                Ok(())
+                Ok(OrderUpdated {
+                    order_id: state.order_id.clone(),
+                    user_id: state.user_id.clone(),
+                })
             } else {
                 Err(UpdateAddressError::ActionNotAllowed(
                     ActionNotAllowedError::new(state.order_status),
@@ -524,7 +561,7 @@ impl OrderAgent for OrderAgentImpl {
         })
     }
 
-    fn ship_order(&mut self) -> Result<(), ShipOrderError> {
+    fn ship_order(&mut self) -> Result<OrderUpdated, ShipOrderError> {
         self.with_state(|state| {
             info!(
                 "Shipping order {} of user {}",
@@ -550,12 +587,15 @@ impl OrderAgent for OrderAgentImpl {
                 }))
             } else {
                 state.set_order_status(OrderStatus::Shipped);
-                Ok(())
+                Ok(OrderUpdated {
+                    order_id: state.order_id.clone(),
+                    user_id: state.user_id.clone(),
+                })
             }
         })
     }
 
-    fn cancel_order(&mut self) -> Result<(), CancelOrderError> {
+    fn cancel_order(&mut self) -> Result<OrderUpdated, CancelOrderError> {
         self.with_state(|state| {
             info!(
                 "Cancelling order {} of user {}",
@@ -568,7 +608,10 @@ impl OrderAgent for OrderAgentImpl {
                     state.order_id, state.user_id
                 );
                 state.set_order_status(OrderStatus::Cancelled);
-                Ok(())
+                Ok(OrderUpdated {
+                    order_id: state.order_id.clone(),
+                    user_id: state.user_id.clone(),
+                })
             } else {
                 info!(
                     "Cancelling order {} of user {}",

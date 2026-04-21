@@ -77,7 +77,6 @@ pub struct SalePricingItem {
     pub end: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-
 impl SalePricingItem {
     fn key(
         &self,
@@ -261,7 +260,8 @@ impl PricingAgent for PricingAgentImpl {
         list_prices: Vec<PricingItem>,
         sale_prices: Vec<SalePricingItem>,
     ) {
-        self.get_state().set_prices(msrp_prices, list_prices, sale_prices);
+        self.get_state()
+            .set_prices(msrp_prices, list_prices, sale_prices);
     }
 
     fn update_pricing(
@@ -270,7 +270,8 @@ impl PricingAgent for PricingAgentImpl {
         list_prices: Vec<PricingItem>,
         sale_prices: Vec<SalePricingItem>,
     ) {
-        self.get_state().update_prices(msrp_prices, list_prices, sale_prices);
+        self.get_state()
+            .update_prices(msrp_prices, list_prices, sale_prices);
     }
 
     async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
