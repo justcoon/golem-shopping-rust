@@ -2,7 +2,7 @@ pub mod common {
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
-    #[serde(rename_all = "kebab-case")]
+    // #[serde(rename_all = "kebab-case")]
     pub struct Address {
         pub street: String,
         pub city: String,
@@ -14,7 +14,7 @@ pub mod common {
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
-    #[serde(rename_all = "kebab-case")]
+    // #[serde(rename_all = "kebab-case")]
     pub struct AddItem {
         pub quantity: u32,
     }
@@ -26,7 +26,7 @@ pub mod common {
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
-    #[serde(rename_all = "kebab-case")]
+    // #[serde(rename_all = "kebab-case")]
     pub struct SetEmail {
         pub email: String,
     }
@@ -42,13 +42,13 @@ pub mod cart {
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
-    #[serde(rename_all = "kebab-case")]
+    // #[serde(rename_all = "kebab-case")]
     pub struct OrderCreated {
         pub order_id: String,
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
-    #[serde(rename_all = "kebab-case")]
+    // #[serde(rename_all = "kebab-case")]
     pub struct OkOrderCreated {
         pub ok: OrderCreated,
     }
