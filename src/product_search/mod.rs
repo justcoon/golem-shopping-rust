@@ -120,14 +120,14 @@ fn get_agent_filter() -> AgentAnyFilter {
         filters: vec![AgentAllFilter {
             filters: vec![AgentPropertyFilter::Name(AgentNameFilter {
                 comparator: StringFilterComparator::StartsWith,
-                value: "product-agent(".to_string(),
+                value: "ProductAgent(".to_string(),
             })],
         }],
     }
 }
 
 fn get_product_agent_id(agent_name: &str) -> Option<String> {
-    Regex::new(r#"product-agent\("([^)]+)"\)"#)
+    Regex::new(r#"ProductAgent\("([^)]+)"\)"#)
         .ok()?
         .captures(agent_name)
         .filter(|caps| caps.len() > 0)
