@@ -3,33 +3,33 @@ import type { Address } from "@/types/address";
 import { DateTime } from "@/types/datetime.ts";
 
 export interface CartItem {
-  "product-id": string;
-  "product-name": string;
-  "product-brand": string;
+  "product_id": string;
+  "product_name": string;
+  "product_brand": string;
   price: number;
   quantity: number;
 }
 
 export interface Cart {
-  "user-id": string;
+  "user_id": string;
   items: CartItem[];
   email?: string;
-  "billing-address"?: Address;
-  "shipping-address"?: Address;
+  "billing_address"?: Address;
+  "shipping_address"?: Address;
   total: number;
   currency: string;
-  "previous-order-ids": string[];
-  "updated-at": DateTime;
+  "previous_order_ids": string[];
+  "updated_at": DateTime;
 }
 
 export interface OrderConfirmation {
-  "order-id": string;
+  "order_id": string;
 }
 
 export const getCart = async (userId: string): Promise<Cart> => {
   try {
     const response = await apiClient.get(`/v1/cart/${userId}`);
-    return response.ok;
+    return response;
   } catch (error) {
     console.error(`Error fetching cart for user ${userId}:`, error);
     throw error;
@@ -82,7 +82,7 @@ export const updateBillingAddress = async (
       `/v1/cart/${userId}/billing-address`,
       address,
     );
-    return response.ok;
+    return response;
   } catch (error) {
     console.error(`Error updating billing address for user ${userId}:`, error);
     throw error;
@@ -98,7 +98,7 @@ export const updateShippingAddress = async (
       `/v1/cart/${userId}/shipping-address`,
       address,
     );
-    return response.ok;
+    return response;
   } catch (error) {
     console.error(`Error updating shipping address for user ${userId}:`, error);
     throw error;
@@ -110,7 +110,7 @@ export const checkoutCart = async (
 ): Promise<OrderConfirmation> => {
   try {
     const response = await apiClient.post(`/v1/cart/${userId}/checkout`, {});
-    return response.ok;
+    return response;
   } catch (error) {
     console.error("Error during checkout:", error);
     throw error;

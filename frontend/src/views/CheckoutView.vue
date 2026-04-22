@@ -58,12 +58,12 @@ onMounted(() => {
   if (!cart.value) cartStore.fetchCart(currentUserId);
 
   // If we have a saved cart with addresses, populate the form
-  if (cart.value?.["shipping-address"]) {
-    shipping.value = { ...cart.value["shipping-address"] };
+  if (cart.value?.["shipping_address"]) {
+    shipping.value = { ...cart.value["shipping_address"] };
   }
 
-  if (cart.value?.["billing-address"]) {
-    billing.value = { ...cart.value["billing-address"] };
+  if (cart.value?.["billing_address"]) {
+    billing.value = { ...cart.value["billing_address"] };
     sameAsBilling.value = false;
   }
 });
@@ -87,13 +87,13 @@ async function submitOrder() {
     const order = await cartStore.checkout(currentUserId);
 
     // Redirect to order confirmation
-    if (order && order["order-id"]) {
+    if (order && order["order_id"]) {
       // Clear cart
       await cartStore.clearCart();
 
       await router.push({
         name: "order-detail",
-        params: { id: order["order-id"] },
+        params: { id: order["order_id"] },
       });
     } else {
       // If for some reason we don't have the order, go to orders page
@@ -285,16 +285,16 @@ async function submitOrder() {
         <div class="order-items">
           <div
             v-for="item in cart.items"
-            :key="item['product-id']"
+            :key="item['product_id']"
             class="order-item"
           >
             <div class="item-details">
               <h6 class="item-name">
                 <router-link
-                  :to="`/products/${item['product-id']}`"
+                  :to="`/products/${item['product_id']}`"
                   class="product-link"
                 >
-                  {{ item["product-name"] }}
+                  {{ item["product_name"] }}
                 </router-link>
               </h6>
               <div class="item-meta">

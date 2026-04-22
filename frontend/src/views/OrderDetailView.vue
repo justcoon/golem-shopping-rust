@@ -93,16 +93,16 @@ watch(() => route.params.id, fetchOrder);
     <div v-else class="order-container">
       <div class="order-header">
         <div>
-          <h1>Order #{{ order["order-id"] }}</h1>
+          <h1>Order #{{ order["order_id"] }}</h1>
           <p class="order-date">
-            Placed on {{ formatDate(order["created-at"]) }}
+            Placed on {{ formatDate(order["created_at"]) }}
           </p>
         </div>
         <div
           class="order-status"
-          :class="getStatusClass(order['order-status'])"
+          :class="getStatusClass(order['order_status'])"
         >
-          {{ formatStatus(order["order-status"]) }}
+          {{ formatStatus(order["order_status"]) }}
         </div>
       </div>
 
@@ -111,24 +111,24 @@ watch(() => route.params.id, fetchOrder);
           <h2>Order Items</h2>
           <div
             v-for="item in order.items"
-            :key="item['product-id']"
+            :key="item['product_id']"
             class="order-item"
           >
             <img
-              :src="getProductImage({ name: item['product-name'] })"
-              :alt="item['product-name']"
+              :src="getProductImage({ name: item['product_name'] })"
+              :alt="item['product_name']"
               class="item-image"
             />
             <div class="item-details">
               <h3>
                 <router-link
-                  :to="`/products/${item['product-id']}`"
+                  :to="`/products/${item['product_id']}`"
                   class="product-link"
                 >
-                  {{ item["product-name"] }}
+                  {{ item["product_name"] }}
                 </router-link>
               </h3>
-              <p class="item-brand">{{ item["product-brand"] }}</p>
+              <p class="item-brand">{{ item["product_brand"] }}</p>
               <p class="item-price">
                 {{ formatPrice(item.price, order.currency) }} ×
                 {{ item.quantity }}
@@ -152,42 +152,42 @@ watch(() => route.params.id, fetchOrder);
           <!-- Shipping Address -->
           <div class="address-section">
             <h3>Shipping Address</h3>
-            <div v-if="order['shipping-address']" class="address-details">
-              <p v-if="order['shipping-address'].name">
-                <strong>{{ order["shipping-address"].name }}</strong>
+            <div v-if="order['shipping_address']" class="address-details">
+              <p v-if="order['shipping_address'].name">
+                <strong>{{ order["shipping_address"].name }}</strong>
               </p>
-              <p>{{ order["shipping-address"].street }}</p>
+              <p>{{ order["shipping_address"].street }}</p>
               <p>
-                {{ order["shipping-address"].city }},
-                {{ order["shipping-address"]["state-or-region"] }}
-                {{ order["shipping-address"]["postal-code"] }}
+                {{ order["shipping_address"].city }},
+                {{ order["shipping_address"]["state-or-region"] }}
+                {{ order["shipping_address"]["postal-code"] }}
               </p>
-              <p>{{ order["shipping-address"].country }}</p>
-              <p v-if="order['shipping-address']['phone-number']">
+              <p>{{ order["shipping_address"].country }}</p>
+              <p v-if="order['shipping_address']['phone-number']">
                 <i class="fas fa-phone"></i>
-                {{ order["shipping-address"]["phone-number"] }}
+                {{ order["shipping_address"]["phone-number"] }}
               </p>
             </div>
             <p v-else>No shipping address provided</p>
           </div>
 
           <!-- Billing Address -->
-          <div v-if="order['billing-address']" class="address-section">
+          <div v-if="order['billing_address']" class="address-section">
             <h3>Billing Address</h3>
             <div class="address-details">
-              <p v-if="order['billing-address'].name">
-                <strong>{{ order["billing-address"].name }}</strong>
+              <p v-if="order['billing_address'].name">
+                <strong>{{ order["billing_address"].name }}</strong>
               </p>
-              <p>{{ order["billing-address"].street }}</p>
+              <p>{{ order["billing_address"].street }}</p>
               <p>
-                {{ order["billing-address"].city }},
-                {{ order["billing-address"]["state-or-region"] }}
-                {{ order["billing-address"]["postal-code"] }}
+                {{ order["billing_address"].city }},
+                {{ order["billing_address"]["state-or-region"] }}
+                {{ order["billing_address"]["postal-code"] }}
               </p>
-              <p>{{ order["billing-address"].country }}</p>
-              <p v-if="order['billing-address']['phone-number']">
+              <p>{{ order["billing_address"].country }}</p>
+              <p v-if="order['billing_address']['phone-number']">
                 <i class="fas fa-phone"></i>
-                {{ order["billing-address"]["phone-number"] }}
+                {{ order["billing_address"]["phone-number"] }}
               </p>
             </div>
           </div>

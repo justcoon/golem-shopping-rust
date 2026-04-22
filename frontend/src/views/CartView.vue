@@ -52,15 +52,15 @@ async function removeItem(productId: string) {
     <div v-else>
       <div
         v-for="item in cart.items"
-        :key="item['product-id']"
+        :key="item['product_id']"
         class="cart-item"
       >
         <h3>
           <router-link
-            :to="`/products/${item['product-id']}`"
+            :to="`/products/${item['product_id']}`"
             class="product-link"
           >
-            {{ item["product-name"] }}
+            {{ item["product_name"] }}
           </router-link>
         </h3>
         <div class="price">{{ formatPrice(item.price, cart.currency) }}</div>
@@ -68,19 +68,19 @@ async function removeItem(productId: string) {
           <button
             class="quantity-btn"
             :disabled="item.quantity <= 1"
-            @click="updateQty(item['product-id'], item.quantity - 1)"
+            @click="updateQty(item['product_id'], item.quantity - 1)"
           >
             -
           </button>
           <span class="quantity">{{ item.quantity }}</span>
           <button
             class="quantity-btn"
-            @click="updateQty(item['product-id'], item.quantity + 1)"
+            @click="updateQty(item['product_id'], item.quantity + 1)"
           >
             +
           </button>
         </div>
-        <button class="remove-btn" @click="removeItem(item['product-id'])">
+        <button class="remove-btn" @click="removeItem(item['product_id'])">
           Remove
         </button>
       </div>

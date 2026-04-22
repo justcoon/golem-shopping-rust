@@ -61,7 +61,7 @@ const emit = defineEmits(["add-to-cart"]);
       <h3>
         <router-link
           v-if="!hideLink"
-          :to="`/products/${product['product-id']}`"
+          :to="`/products/${product['product_id']}`"
         >
           {{ product.name }}
         </router-link>
