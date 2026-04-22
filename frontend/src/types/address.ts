@@ -1,9 +1,9 @@
 export interface Address {
   street: string;
   city: string;
-  "state-or-region": string;
+  state_or_region: string;
   country: string;
-  "postal-code": string;
+  postal_code: string;
   name?: string;
-  "phone-number"?: string;
+  phone_number?: string;
 }

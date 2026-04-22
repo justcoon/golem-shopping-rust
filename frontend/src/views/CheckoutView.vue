@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from "vue";
-import { useRouter } from "vue-router";
-import { useCartStore } from "@/stores/cartStore";
-import { useAuthStore } from "@/stores/authStore";
-import type { Address } from "@/types/address";
-import { formatPrice } from "@/utils/currency";
+import {ref, onMounted, watch, computed} from "vue";
+import {useRouter} from "vue-router";
+import {useCartStore} from "@/stores/cartStore";
+import {useAuthStore} from "@/stores/authStore";
+import type {Address} from "@/types/address";
+import {formatPrice} from "@/utils/currency";
 
 const cartStore = useCartStore();
 const authStore = useAuthStore();
@@ -20,31 +20,31 @@ const shipping = ref<Address & { email: string }>({
   email: "",
   street: "",
   city: "",
-  "state-or-region": "",
+  state_or_region: "",
   country: "",
-  "postal-code": "",
+  postal_code: "",
   name: "",
-  "phone-number": "",
+  phone_number: "",
 });
 
 // Billing address (starts as a copy of shipping address)
-const billing = ref<Address>({ ...shipping.value });
+const billing = ref<Address>({...shipping.value});
 
 // When shipping address changes, update billing address if sameAsBilling is true
 watch(
-  shipping,
-  (newShipping) => {
-    if (sameAsBilling.value) {
-      billing.value = { ...newShipping };
-    }
-  },
-  { deep: true },
+    shipping,
+    (newShipping) => {
+      if (sameAsBilling.value) {
+        billing.value = {...newShipping};
+      }
+    },
+    {deep: true},
 );
 
 // When sameAsBilling changes, update billing address if needed
 watch(sameAsBilling, (isSame) => {
   if (isSame) {
-    billing.value = { ...shipping.value };
+    billing.value = {...shipping.value};
   }
 });
 
@@ -59,11 +59,11 @@ onMounted(() => {
 
   // If we have a saved cart with addresses, populate the form
   if (cart.value?.["shipping_address"]) {
-    shipping.value = { ...cart.value["shipping_address"] };
+    shipping.value = {...cart.value["shipping_address"]};
   }
 
   if (cart.value?.["billing_address"]) {
-    billing.value = { ...cart.value["billing_address"] };
+    billing.value = {...cart.value["billing_address"]};
     sameAsBilling.value = false;
   }
 });
@@ -93,11 +93,11 @@ async function submitOrder() {
 
       await router.push({
         name: "order-detail",
-        params: { id: order["order_id"] },
+        params: {id: order["order_id"]},
       });
     } else {
       // If for some reason we don't have the order, go to orders page
-      await router.push({ name: "orders" });
+      await router.push({name: "orders"});
     }
   } catch (error) {
     console.error("Checkout failed:", error);
@@ -122,30 +122,30 @@ async function submitOrder() {
         <div class="form-group">
           <label for="shipping-email">Email Address</label>
           <input
-            id="shipping-email"
-            v-model="shipping.email"
-            type="email"
-            placeholder="your@email.com"
-            required
+              id="shipping-email"
+              v-model="shipping.email"
+              type="email"
+              placeholder="your@email.com"
+              required
           />
         </div>
         <div class="form-group">
           <label for="shipping-name">Full Name</label>
           <input
-            id="shipping-name"
-            v-model="shipping.name"
-            placeholder="John Doe"
-            required
+              id="shipping-name"
+              v-model="shipping.name"
+              placeholder="John Doe"
+              required
           />
         </div>
 
         <div class="form-group">
           <label for="shipping-street">Street Address</label>
           <input
-            id="shipping-street"
-            v-model="shipping.street"
-            placeholder="123 Main St"
-            required
+              id="shipping-street"
+              v-model="shipping.street"
+              placeholder="123 Main St"
+              required
           />
         </div>
 
@@ -153,19 +153,19 @@ async function submitOrder() {
           <div class="form-group">
             <label for="shipping-city">City</label>
             <input
-              id="shipping-city"
-              v-model="shipping.city"
-              placeholder="New York"
-              required
+                id="shipping-city"
+                v-model="shipping.city"
+                placeholder="New York"
+                required
             />
           </div>
           <div class="form-group">
             <label for="shipping-region">State/Region</label>
             <input
-              id="shipping-region"
-              v-model="shipping['state-or-region']"
-              placeholder="NY"
-              required
+                id="shipping-region"
+                v-model="shipping['state_or_region']"
+                placeholder="NY"
+                required
             />
           </div>
         </div>
@@ -174,19 +174,19 @@ async function submitOrder() {
           <div class="form-group">
             <label for="shipping-postal-code">Postal Code</label>
             <input
-              id="shipping-postal-code"
-              v-model="shipping['postal-code']"
-              placeholder="10001"
-              required
+                id="shipping-postal-code"
+                v-model="shipping['postal_code']"
+                placeholder="10001"
+                required
             />
           </div>
           <div class="form-group">
             <label for="shipping-country">Country</label>
             <input
-              id="shipping-country"
-              v-model="shipping.country"
-              placeholder="United States"
-              required
+                id="shipping-country"
+                v-model="shipping.country"
+                placeholder="United States"
+                required
             />
           </div>
         </div>
@@ -194,16 +194,16 @@ async function submitOrder() {
         <div class="form-group">
           <label for="shipping-phone">Phone Number</label>
           <input
-            id="shipping-phone"
-            v-model="shipping['phone-number']"
-            placeholder="+1 (555) 123-4567"
+              id="shipping-phone"
+              v-model="shipping['phone_number']"
+              placeholder="+1 (555) 123-4567"
           />
         </div>
 
         <div class="form-checkbox">
-          <input id="same-as-billing" v-model="sameAsBilling" type="checkbox" />
+          <input id="same-as-billing" v-model="sameAsBilling" type="checkbox"/>
           <label for="same-as-billing"
-            >Billing address is the same as shipping</label
+          >Billing address is the same as shipping</label
           >
         </div>
 
@@ -212,18 +212,18 @@ async function submitOrder() {
           <div class="form-group">
             <label for="billing-name">Full Name</label>
             <input
-              id="billing-name"
-              v-model="billing.name"
-              placeholder="John Doe"
+                id="billing-name"
+                v-model="billing.name"
+                placeholder="John Doe"
             />
           </div>
 
           <div class="form-group">
             <label for="billing-street">Street Address</label>
             <input
-              id="billing-street"
-              v-model="billing.street"
-              placeholder="123 Main St"
+                id="billing-street"
+                v-model="billing.street"
+                placeholder="123 Main St"
             />
           </div>
 
@@ -231,17 +231,17 @@ async function submitOrder() {
             <div class="form-group">
               <label for="billing-city">City</label>
               <input
-                id="billing-city"
-                v-model="billing.city"
-                placeholder="New York"
+                  id="billing-city"
+                  v-model="billing.city"
+                  placeholder="New York"
               />
             </div>
             <div class="form-group">
               <label for="billing-region">State/Region</label>
               <input
-                id="billing-region"
-                v-model="billing['state-or-region']"
-                placeholder="NY"
+                  id="billing-region"
+                  v-model="billing['state_or_region']"
+                  placeholder="NY"
               />
             </div>
           </div>
@@ -250,17 +250,17 @@ async function submitOrder() {
             <div class="form-group">
               <label for="billing-postal-code">Postal Code</label>
               <input
-                id="billing-postal-code"
-                v-model="billing['postal-code']"
-                placeholder="10001"
+                  id="billing-postal-code"
+                  v-model="billing['postal_code']"
+                  placeholder="10001"
               />
             </div>
             <div class="form-group">
               <label for="billing-country">Country</label>
               <input
-                id="billing-country"
-                v-model="billing.country"
-                placeholder="United States"
+                  id="billing-country"
+                  v-model="billing.country"
+                  placeholder="United States"
               />
             </div>
           </div>
@@ -268,9 +268,9 @@ async function submitOrder() {
           <div class="form-group">
             <label for="billing-phone">Phone Number</label>
             <input
-              id="billing-phone"
-              v-model="billing['phone-number']"
-              placeholder="+1 (555) 123-4567"
+                id="billing-phone"
+                v-model="billing['phone_number']"
+                placeholder="+1 (555) 123-4567"
             />
           </div>
         </div>
@@ -284,15 +284,15 @@ async function submitOrder() {
         <h2>Order Summary</h2>
         <div class="order-items">
           <div
-            v-for="item in cart.items"
-            :key="item['product_id']"
-            class="order-item"
+              v-for="item in cart.items"
+              :key="item['product_id']"
+              class="order-item"
           >
             <div class="item-details">
               <h6 class="item-name">
                 <router-link
-                  :to="`/products/${item['product_id']}`"
-                  class="product-link"
+                    :to="`/products/${item['product_id']}`"
+                    class="product-link"
                 >
                   {{ item["product_name"] }}
                 </router-link>
