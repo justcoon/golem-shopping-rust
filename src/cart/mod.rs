@@ -354,7 +354,13 @@ trait CartAgent {
     #[endpoint(put = "/billing-address")]
     fn update_billing_address(
         &mut self,
-        address: Address,
+        street: String,
+        city: String,
+        state_or_region: String,
+        country: String,
+        postal_code: String,
+        name: Option<String>,
+        phone_number: Option<String>,
     ) -> Result<CartUpdated, UpdateAddressError>;
 
     fn update_item_quantity(
@@ -366,7 +372,13 @@ trait CartAgent {
     #[endpoint(put = "/shipping-address")]
     fn update_shipping_address(
         &mut self,
-        address: Address,
+        street: String,
+        city: String,
+        state_or_region: String,
+        country: String,
+        postal_code: String,
+        name: Option<String>,
+        phone_number: Option<String>,
     ) -> Result<CartUpdated, UpdateAddressError>;
 }
 
@@ -535,7 +547,13 @@ impl CartAgent for CartAgentImpl {
 
     fn update_billing_address(
         &mut self,
-        address: Address,
+        street: String,
+        city: String,
+        state_or_region: String,
+        country: String,
+        postal_code: String,
+        name: Option<String>,
+        phone_number: Option<String>,
     ) -> Result<CartUpdated, UpdateAddressError> {
         self.with_state(|state| {
             info!(
@@ -543,6 +561,15 @@ impl CartAgent for CartAgentImpl {
                 state.user_id
             );
 
+            let address = Address {
+                street,
+                city,
+                state_or_region,
+                country,
+                postal_code,
+                name,
+                phone_number,
+            };
             state.set_billing_address(address);
             Ok(CartUpdated {
                 user_id: state.user_id.clone(),
@@ -577,7 +604,13 @@ impl CartAgent for CartAgentImpl {
 
     fn update_shipping_address(
         &mut self,
-        address: Address,
+        street: String,
+        city: String,
+        state_or_region: String,
+        country: String,
+        postal_code: String,
+        name: Option<String>,
+        phone_number: Option<String>,
     ) -> Result<CartUpdated, UpdateAddressError> {
         self.with_state(|state| {
             info!(
@@ -585,6 +618,15 @@ impl CartAgent for CartAgentImpl {
                 state.user_id
             );
 
+            let address = Address {
+                street,
+                city,
+                state_or_region,
+                country,
+                postal_code,
+                name,
+                phone_number,
+            };
             state.set_shipping_address(address);
             Ok(CartUpdated {
                 user_id: state.user_id.clone(),

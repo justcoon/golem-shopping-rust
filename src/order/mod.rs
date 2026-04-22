@@ -294,7 +294,13 @@ trait OrderAgent {
     #[endpoint(put = "/billing-address")]
     fn update_billing_address(
         &mut self,
-        address: Address,
+        street: String,
+        city: String,
+        state_or_region: String,
+        country: String,
+        postal_code: String,
+        name: Option<String>,
+        phone_number: Option<String>,
     ) -> Result<OrderUpdated, UpdateAddressError>;
 
     fn update_item_quantity(
@@ -306,7 +312,13 @@ trait OrderAgent {
     #[endpoint(put = "/shipping-address")]
     fn update_shipping_address(
         &mut self,
-        address: Address,
+        street: String,
+        city: String,
+        state_or_region: String,
+        country: String,
+        postal_code: String,
+        name: Option<String>,
+        phone_number: Option<String>,
     ) -> Result<OrderUpdated, UpdateAddressError>;
 
     #[endpoint(post = "/ship-order")]
@@ -486,7 +498,13 @@ impl OrderAgent for OrderAgentImpl {
 
     fn update_billing_address(
         &mut self,
-        address: Address,
+        street: String,
+        city: String,
+        state_or_region: String,
+        country: String,
+        postal_code: String,
+        name: Option<String>,
+        phone_number: Option<String>,
     ) -> Result<OrderUpdated, UpdateAddressError> {
         self.with_state(|state| {
             info!(
@@ -494,6 +512,15 @@ impl OrderAgent for OrderAgentImpl {
                 state.order_id, state.user_id
             );
             if state.order_status == OrderStatus::New {
+                let address = Address {
+                    street,
+                    city,
+                    state_or_region,
+                    country,
+                    postal_code,
+                    name,
+                    phone_number,
+                };
                 state.set_billing_address(address);
                 Ok(OrderUpdated {
                     order_id: state.order_id.clone(),
@@ -540,7 +567,13 @@ impl OrderAgent for OrderAgentImpl {
 
     fn update_shipping_address(
         &mut self,
-        address: Address,
+        street: String,
+        city: String,
+        state_or_region: String,
+        country: String,
+        postal_code: String,
+        name: Option<String>,
+        phone_number: Option<String>,
     ) -> Result<OrderUpdated, UpdateAddressError> {
         self.with_state(|state| {
             info!(
@@ -548,6 +581,15 @@ impl OrderAgent for OrderAgentImpl {
                 state.order_id, state.user_id
             );
             if state.order_status == OrderStatus::New {
+                let address = Address {
+                    street,
+                    city,
+                    state_or_region,
+                    country,
+                    postal_code,
+                    name,
+                    phone_number,
+                };
                 state.set_shipping_address(address);
                 Ok(OrderUpdated {
                     order_id: state.order_id.clone(),
