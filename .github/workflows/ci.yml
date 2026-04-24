@@ -138,6 +138,8 @@ jobs:
             sleep 2
           done
       - name: Deploy components
+        env:
+          OPENROUTER_KEY: "key"
         run: golem deploy --reset --yes
       - name: Smoke test deployment
         run: |

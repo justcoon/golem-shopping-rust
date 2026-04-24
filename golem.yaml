@@ -30,7 +30,7 @@ components:
     #     COMPOSED_VAR_3: "{{ ENV_VAR_3 }}-{{ ENV_VAR_4}}"
     #
     env:
-#      OPENROUTER_API_KEY:  '{{ OPENROUTER_KEY }}'
+      OPENROUTER_API_KEY:  '{{ OPENROUTER_KEY }}'
 httpApi:
   deployments:
     local:

@@ -1,9 +1,9 @@
 use crate::cart::CartAgentClient;
 use crate::order::{OrderAgentClient, OrderItem};
 use futures::future::join_all;
-// use golem_rust::golem_ai::golem::llm::llm;
+use golem_ai_llm::LlmProvider;
 use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
-use schemars::JsonSchema;
+use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -57,90 +57,87 @@ fn reduce_order_items(items: Vec<OrderItem>) -> Vec<OrderItem> {
 }
 
 async fn get_llm_recommendations(items: Vec<OrderItem>) -> Result<LlmRecommendedItems, String> {
+    use golem_ai_llm::model::*;
     log::info!("LLM recommendations - items: {}", items.len());
+    let current_items: Vec<LlmOrderItem> = items.into_iter().map(LlmOrderItem::from).collect();
+    let current_items_string = serde_json::to_string(&current_items).map_err(|e| e.to_string())?;
 
-    Ok(LlmRecommendedItems {
-        product_ids: vec![],
-        product_brands: vec![],
-    })
-    // let current_items: Vec<LlmOrderItem> = items.into_iter().map(LlmOrderItem::from).collect();
-    // let current_items_string = serde_json::to_string(&current_items).map_err(|e| e.to_string())?;
-    //
-    // let config = llm::Config {
-    //     model: "tngtech/deepseek-r1t2-chimera:free".to_string(),
-    //     max_tokens: None,
-    //     temperature: None,
-    //     stop_sequences: None,
-    //     tools: None,
-    //     tool_choice: None,
-    //     provider_options: Some(vec![llm::Kv {
-    //         key: "responseFormat".to_string(),
-    //         value: "json_object".to_string(),
-    //     }]),
-    // };
-    //
-    // let schema = schema_for!(LlmRecommendedItems);
-    // let schema_json = serde_json::to_string_pretty(&schema).map_err(|e| e.to_string())?;
-    //
-    // let system_message = format!(
-    //     r#"
-    //         You MUST respond with JSON in the following schema:
-    //             {schema_json}
-    //         Return ONLY valid JSON, no other text.
-    //     "#
-    // );
-    //
-    // let system_event = llm::Event::Message(llm::Message {
-    //     role: llm::Role::System,
-    //     name: None,
-    //     content: vec![llm::ContentPart::Text(system_message.to_string())],
-    // });
-    //
-    // let user_message = format!(
-    //     r#"
-    //        We have a list of order items: {current_items_string}.
-    //        Can you do {RECOMMENDATION_PRODUCT_COUNT} recommendations for products items to buy based on previous order items.
-    //        Can you do {RECOMMENDATION_BRAND_COUNT} recommendations for product brands to buy based on previous order items.
-    //        Return the list of product_id-s and list of product_brand-s as a valid JSON object. Return JSON only.
-    //     "#
-    // );
-    //
-    // let user_event = llm::Event::Message(llm::Message {
-    //     role: llm::Role::User,
-    //     name: None,
-    //     content: vec![llm::ContentPart::Text(user_message.to_string())],
-    // });
-    //
-    // let llm_response = llm::send(&[system_event, user_event], &config);
-    //
-    // match llm_response {
-    //     Ok(response) => {
-    //         let response_content = response
-    //             .content
-    //             .iter()
-    //             .filter_map(|part| match part {
-    //                 llm::ContentPart::Text(text) => Some(text.clone()),
-    //                 _ => None,
-    //             })
-    //             .collect::<String>();
-    //
-    //         let json_str = response_content
-    //             .trim()
-    //             .strip_prefix("```json")
-    //             .and_then(|s| s.strip_suffix("```"))
-    //             .unwrap_or(&response_content)
-    //             .trim();
-    //
-    //         serde_json::from_str(json_str).map_err(|e| {
-    //             println!("LLM recommendations - response: {}, error: {}", json_str, e);
-    //             e.to_string()
-    //         })
-    //     }
-    //     Err(e) => {
-    //         println!("LLM recommendations - error: {}", e);
-    //         Err(e.to_string())
-    //     }
-    // }
+    let config = Config {
+        model: "tngtech/deepseek-r1t2-chimera:free".to_string(),
+        max_tokens: None,
+        temperature: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+        provider_options: Some(vec![Kv {
+            key: "responseFormat".to_string(),
+            value: "json_object".to_string(),
+        }]),
+    };
+
+    let schema = schema_for!(LlmRecommendedItems);
+    let schema_json = serde_json::to_string_pretty(&schema).map_err(|e| e.to_string())?;
+
+    let system_message = format!(
+        r#"
+            You MUST respond with JSON in the following schema:
+                {schema_json}
+            Return ONLY valid JSON, no other text.
+        "#
+    );
+
+    let system_event = Event::Message(Message {
+        role: Role::System,
+        name: None,
+        content: vec![ContentPart::Text(system_message.to_string())],
+    });
+
+    let user_message = format!(
+        r#"
+           We have a list of order items: {current_items_string}.
+           Can you do {RECOMMENDATION_PRODUCT_COUNT} recommendations for products items to buy based on previous order items.
+           Can you do {RECOMMENDATION_BRAND_COUNT} recommendations for product brands to buy based on previous order items.
+           Return the list of product_id-s and list of product_brand-s as a valid JSON object. Return JSON only.
+        "#
+    );
+
+    let user_event = Event::Message(Message {
+        role: Role::User,
+        name: None,
+        content: vec![ContentPart::Text(user_message.to_string())],
+    });
+
+    let llm_response =
+        golem_ai_llm_openrouter::DurableOpenRouter::send(vec![system_event, user_event], config);
+
+    match llm_response {
+        Ok(response) => {
+            let response_content = response
+                .content
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::Text(text) => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<String>();
+
+            let json_str = response_content
+                .trim()
+                .strip_prefix("```json")
+                .and_then(|s| s.strip_suffix("```"))
+                .unwrap_or(&response_content)
+                .trim();
+
+            serde_json::from_str(json_str).map_err(|e| {
+                log::error!("LLM recommendations - response: {}, error: {}", json_str, e);
+                e.to_string()
+            })
+        }
+        Err(e) => {
+            log::error!("LLM recommendations - error: {:?}", e);
+            Err(format!("{:?}", e))
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
