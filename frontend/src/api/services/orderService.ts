@@ -3,31 +3,31 @@ import type { Address } from "@/types/address";
 import { DateTime } from "@/types/datetime.ts";
 
 export interface OrderItem {
-  "product-id": string;
-  "product-name": string;
-  "product-brand": string;
+  "product_id": string;
+  "product_name": string;
+  "product_brand": string;
   price: number;
   quantity: number;
 }
 
 export interface Order {
-  "order-id": string;
-  "user-id": string;
+  "order_id": string;
+  "user_id": string;
   items: OrderItem[];
   email: string;
-  "billing-address"?: Address;
-  "shipping-address"?: Address;
-  "order-status": string;
+  "billing_address"?: Address;
+  "shipping_address"?: Address;
+  "order_status": string;
   total: number;
   currency: string;
-  "created-at": DateTime;
-  "updated-at": DateTime;
+  "created_at": DateTime;
+  "updated_at": DateTime;
 }
 
 export const getOrder = async (orderId: string): Promise<Order> => {
   try {
     const response = await apiClient.get(`/v1/order/${orderId}`);
-    return response.ok;
+    return response;
   } catch (error) {
     console.error(`Error fetching order ${orderId}:`, error);
     throw error;

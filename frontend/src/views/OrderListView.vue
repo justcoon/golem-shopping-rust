@@ -61,40 +61,40 @@ onMounted(fetchOrders);
     </div>
 
     <div v-else class="orders">
-      <div v-for="order in orders" :key="order['order-id']" class="order-card">
+      <div v-for="order in orders" :key="order['order_id']" class="order-card">
         <div class="order-header">
           <div>
-            <h3>Order #{{ order["order-id"] }}</h3>
+            <h3>Order #{{ order["order_id"] }}</h3>
             <p class="order-date">
-              Placed on {{ formatDate(order["created-at"]) }}
+              Placed on {{ formatDate(order["created_at"]) }}
             </p>
           </div>
           <div
             class="order-status"
-            :class="getStatusClass(order['order-status'])"
+            :class="getStatusClass(order['order_status'])"
           >
-            {{ formatStatus(order["order-status"]) }}
+            {{ formatStatus(order["order_status"]) }}
           </div>
         </div>
 
         <div class="order-items">
           <div
             v-for="item in order.items.slice(0, 3)"
-            :key="item['product-id']"
+            :key="item['product_id']"
             class="order-item"
           >
             <img
-              :src="getProductImage({ name: item['product-name'] })"
-              :alt="item['product-name']"
+              :src="getProductImage({ name: item['product_name'] })"
+              :alt="item['product_name']"
               class="item-image"
             />
             <div class="item-details">
               <h4>
                 <router-link
-                  :to="`/products/${item['product-id']}`"
+                  :to="`/products/${item['product_id']}`"
                   class="product-link"
                 >
-                  {{ item["product-name"] }}
+                  {{ item["product_name"] }}
                 </router-link>
               </h4>
               <p>Qty: {{ item.quantity }}</p>
@@ -116,7 +116,7 @@ onMounted(fetchOrders);
             </p>
           </div>
           <router-link
-            :to="`/orders/${order['order-id']}`"
+            :to="`/orders/${order['order_id']}`"
             class="btn btn-outline"
           >
             View Order

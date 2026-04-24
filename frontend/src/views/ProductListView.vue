@@ -138,7 +138,7 @@ async function addToCart(product: Product) {
 
   try {
     isAddingToCart.value = true;
-    await cartStore.addItem(currentUserId, product["product-id"], 1);
+    await cartStore.addItem(currentUserId, product["product_id"], 1);
   } catch (err) {
     console.error("Error adding to cart:", err);
   } finally {
@@ -247,7 +247,7 @@ onMounted(async () => {
         <div v-else class="product-grid">
           <ProductCard
             v-for="product in paginatedProducts"
-            :key="product['product-id']"
+            :key="product['product_id']"
             :product="product"
             :is-adding-to-cart="isAddingToCart"
             @add-to-cart="addToCart"

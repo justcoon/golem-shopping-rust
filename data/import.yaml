@@ -7,7 +7,7 @@ rampup: 1
 plan:
   - name: Create tech product, index {{ index }}
     request:
-      url: /v1/product/{{ item.product-id }}
+      url: /v1/product/{{ item.product_id }}
       method: POST
       body: '{{ item.body }}'
       headers:
@@ -16,11 +16,11 @@ plan:
         Accept: 'application/json'
     with_items_from_csv:
       file_name: ./fixtures/tech_products.csv
-      quote_char: "\'"
+      quote_char: "'"
 
   - name: Create tech pricing, index {{ index }}
     request:
-      url: /v1/pricing/{{ item.product-id }}
+      url: /v1/pricing/{{ item.product_id }}
       method: POST
       body: '{{ item.body }}'
       headers:
@@ -29,4 +29,4 @@ plan:
         Accept: 'application/json'
     with_items_from_csv:
       file_name: ./fixtures/tech_prices.csv
-      quote_char: "\'"
+      quote_char: "'"

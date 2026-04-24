@@ -1,18 +1,30 @@
+[package]
+name = "shopping_rust_shopping"
+version = "0.0.1"
+edition = "2024"
+
 [workspace]
-resolver = "2"
-members = ["components-rust/*", "common-rust/*"]
 exclude = ["benchmark"]
 
 [profile.release]
 opt-level = "s"
 lto = true
 
-[workspace.dependencies]
-golem-rust = { version = "1.10.4", features = ["export_load_snapshot", "export_save_snapshot", "export_golem_agentic", "golem_ai", "chrono"] }
-golem-wasi-http = { version = "0.1.0", features = ["json"] }
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+log = { version = "0.4.29", features = ["kv"] }
+golem-rust = { version = "2.0.0", features = ["export_golem_agentic", "chrono"] }
+golem-ai-llm = { git = "https://github.com/golemcloud/golem-ai", tag = "v0.5.0" }
+golem-ai-llm-openrouter = { git = "https://github.com/golemcloud/golem-ai", tag = "v0.5.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-chrono = "0.4"
+wstd = { version = "=0.6.5", features = ["default", "json"] }
+chrono = "0.4.42"
 email_address = "0.2.9"
 uuid = { version = "1.18.1", features = ["v4"] }
 schemars = { version = "1.1.0", features = ["preserve_order"] }
+regex = "1.12.2"
+futures = "0.3.31"

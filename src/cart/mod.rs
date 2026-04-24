@@ -1,0 +1,646 @@
+use crate::common::{Address, CURRENCY_DEFAULT, PRICING_REGION_DEFAULT};
+use crate::order::{CreateOrder, OrderAgentClient, OrderItem};
+use crate::pricing::{PricingAgentClient, PricingItem};
+use crate::product::{Product, ProductAgentClient};
+use crate::shopping_assistant::ShoppingAssistantAgentClient;
+use email_address::EmailAddress;
+use futures::future::join;
+use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
+use log::info;
+use serde::{Deserialize, Serialize};
+use std::str::FromStr;
+use uuid::Uuid;
+
+#[derive(Schema, Clone, Serialize, Deserialize)]
+pub struct Cart {
+    pub user_id: String,
+    pub email: Option<String>,
+    pub items: Vec<CartItem>,
+    pub billing_address: Option<Address>,
+    pub shipping_address: Option<Address>,
+    pub total: f32,
+    pub currency: String,
+    pub previous_order_ids: Vec<String>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl Cart {
+    fn new(user_id: String) -> Self {
+        Self {
+            user_id,
+            email: None,
+            items: vec![],
+            billing_address: None,
+            shipping_address: None,
+            total: 0.0,
+            currency: CURRENCY_DEFAULT.to_string(),
+            updated_at: chrono::Utc::now(),
+            previous_order_ids: vec![],
+        }
+    }
+
+    fn order_created(&mut self, order_id: String) {
+        self.clear();
+        self.previous_order_ids.push(order_id);
+    }
+
+    fn clear(&mut self) {
+        self.items.clear();
+        self.billing_address = None;
+        self.shipping_address = None;
+        self.total = 0.0;
+        self.updated_at = chrono::Utc::now();
+    }
+
+    fn recalculate_total(&mut self) {
+        self.total = get_total_price(self.items.clone());
+        self.updated_at = chrono::Utc::now();
+    }
+
+    fn add_item(&mut self, item: CartItem) -> bool {
+        self.items.push(item);
+        self.recalculate_total();
+        true
+    }
+
+    fn set_items(&mut self, items: Vec<CartItem>) {
+        self.items = items;
+        self.recalculate_total();
+    }
+
+    fn set_billing_address(&mut self, address: Address) {
+        self.billing_address = Some(address);
+        self.updated_at = chrono::Utc::now();
+    }
+
+    fn set_shipping_address(&mut self, address: Address) {
+        self.shipping_address = Some(address);
+        self.updated_at = chrono::Utc::now();
+    }
+
+    fn set_email(&mut self, email: String) {
+        self.email = Some(email);
+        self.updated_at = chrono::Utc::now();
+    }
+
+    fn update_item_quantity(&mut self, product_id: String, quantity: u32, add: bool) -> bool {
+        let mut updated = false;
+
+        for item in &mut self.items {
+            if item.product_id == product_id {
+                if add {
+                    item.quantity += quantity;
+                } else {
+                    item.quantity = quantity;
+                }
+                updated = true;
+            }
+        }
+
+        if updated {
+            self.recalculate_total();
+        }
+
+        updated
+    }
+
+    fn remove_item(&mut self, product_id: String) -> bool {
+        let exist = self.items.iter().any(|item| item.product_id == product_id);
+
+        if exist {
+            self.items.retain(|item| item.product_id != product_id);
+            self.recalculate_total();
+        }
+
+        exist
+    }
+}
+
+#[derive(Schema, Clone, Serialize, Deserialize)]
+pub struct CartItem {
+    pub product_id: String,
+    pub product_name: String,
+    pub product_brand: String,
+    pub price: f32,
+    pub quantity: u32,
+}
+
+impl From<CartItem> for OrderItem {
+    fn from(value: CartItem) -> Self {
+        Self {
+            product_id: value.product_id,
+            quantity: value.quantity,
+            price: value.price,
+            product_name: value.product_name,
+            product_brand: value.product_brand,
+        }
+    }
+}
+
+impl From<Cart> for CreateOrder {
+    fn from(value: Cart) -> Self {
+        Self {
+            user_id: value.user_id,
+            email: value.email,
+            items: value.items.into_iter().map(|item| item.into()).collect(),
+            total: value.total,
+            currency: value.currency,
+            shipping_address: value.shipping_address,
+            billing_address: value.billing_address,
+        }
+    }
+}
+
+#[derive(Schema, Clone)]
+pub struct ItemNotFoundError {
+    pub message: String,
+    pub product_id: String,
+}
+impl ItemNotFoundError {
+    fn new(product_id: String) -> ItemNotFoundError {
+        ItemNotFoundError {
+            message: "Item not found".to_string(),
+            product_id,
+        }
+    }
+}
+#[derive(Schema, Clone)]
+pub struct PricingNotFoundError {
+    pub message: String,
+    pub product_id: String,
+}
+impl PricingNotFoundError {
+    fn new(product_id: String) -> PricingNotFoundError {
+        PricingNotFoundError {
+            message: "Pricing not found".to_string(),
+            product_id,
+        }
+    }
+}
+#[derive(Schema, Clone)]
+pub struct ProductNotFoundError {
+    pub message: String,
+    pub product_id: String,
+}
+
+impl ProductNotFoundError {
+    fn new(product_id: String) -> ProductNotFoundError {
+        ProductNotFoundError {
+            message: "Product not found".to_string(),
+            product_id,
+        }
+    }
+}
+#[derive(Schema, Clone)]
+pub struct EmailNotValidError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct EmptyItemsError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct AddressNotValidError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct BillingAddressNotSetError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct EmptyEmailError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub struct OrderCreateError {
+    pub message: String,
+}
+#[derive(Schema, Clone)]
+pub enum AddItemError {
+    ProductNotFound(ProductNotFoundError),
+    PricingNotFound(PricingNotFoundError),
+}
+#[derive(Schema, Clone)]
+pub enum RemoveItemError {
+    ItemNotFound(ItemNotFoundError),
+}
+#[derive(Schema, Clone)]
+pub enum ShipOrderError {
+    EmptyItems(EmptyItemsError),
+    EmptyEmail(EmptyEmailError),
+    BillingAddressNotSet(BillingAddressNotSetError),
+}
+#[derive(Schema, Clone)]
+pub enum UpdateEmailError {
+    EmailNotValid(EmailNotValidError),
+}
+#[derive(Schema, Clone)]
+pub enum UpdateItemQuantityError {
+    ItemNotFound(ItemNotFoundError),
+}
+#[derive(Schema, Clone)]
+pub enum CheckoutError {
+    ProductNotFound(ProductNotFoundError),
+    PricingNotFound(PricingNotFoundError),
+    EmptyItems(EmptyItemsError),
+    EmptyEmail(EmptyEmailError),
+    BillingAddressNotSet(BillingAddressNotSetError),
+    OrderCreate(OrderCreateError),
+}
+#[derive(Schema, Clone)]
+pub enum UpdateAddressError {
+    AddressNotValid(AddressNotValidError),
+}
+
+#[derive(Schema, Clone)]
+pub struct OrderConfirmation {
+    pub user_id: String,
+    pub order_id: String,
+}
+
+#[derive(Schema, Clone)]
+pub struct CartUpdated {
+    pub user_id: String,
+}
+
+fn get_total_price(items: Vec<CartItem>) -> f32 {
+    let mut total = 0f32;
+
+    for item in items {
+        total += item.price * item.quantity as f32;
+    }
+
+    total
+}
+
+fn generate_order_id() -> String {
+    Uuid::new_v4().to_string()
+}
+
+fn get_cart_item(product: Product, pricing: PricingItem, quantity: u32) -> CartItem {
+    CartItem {
+        product_id: product.product_id,
+        product_name: product.name,
+        product_brand: product.brand,
+        price: pricing.price,
+        quantity,
+    }
+}
+
+fn validate_cart(cart: Cart) -> Result<(), CheckoutError> {
+    if cart.items.is_empty() {
+        Err(CheckoutError::EmptyItems(EmptyItemsError {
+            message: "Empty items".to_string(),
+        }))
+    } else if cart.billing_address.is_none() {
+        Err(CheckoutError::BillingAddressNotSet(
+            BillingAddressNotSetError {
+                message: "Billing address not set".to_string(),
+            },
+        ))
+    } else if cart.email.is_none() {
+        Err(CheckoutError::EmptyEmail(EmptyEmailError {
+            message: "Email not set".to_string(),
+        }))
+    } else {
+        Ok(())
+    }
+}
+
+async fn create_order(order_id: String, cart: Cart) -> Result<String, CheckoutError> {
+    info!("Creating order: {}", order_id);
+
+    validate_cart(cart.clone())?;
+
+    let order = cart.into();
+
+    OrderAgentClient::get(order_id.clone())
+        .initialize_order(order)
+        .await
+        .map_err(|_| {
+            CheckoutError::OrderCreate(OrderCreateError {
+                message: "Failed to create order".to_string(),
+            })
+        })?;
+
+    Ok(order_id)
+}
+
+#[agent_definition(mount = "/v1/cart/{id}")]
+trait CartAgent {
+    fn new(id: String) -> Self;
+
+    #[endpoint(get = "/")]
+    async fn get_cart(&mut self) -> Option<Cart>;
+
+    #[endpoint(put = "/items/{product_id}")]
+    async fn add_item(
+        &mut self,
+        product_id: String,
+        quantity: u32,
+    ) -> Result<CartUpdated, AddItemError>;
+
+    #[endpoint(post = "/checkout")]
+    async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError>;
+
+    #[endpoint(put = "/email")]
+    fn update_email(&mut self, email: String) -> Result<CartUpdated, UpdateEmailError>;
+
+    fn clear(&mut self);
+
+    #[endpoint(delete = "/items/{product_id}")]
+    fn remove_item(&mut self, product_id: String) -> Result<CartUpdated, RemoveItemError>;
+
+    #[endpoint(put = "/billing-address")]
+    fn update_billing_address(
+        &mut self,
+        street: String,
+        city: String,
+        state_or_region: String,
+        country: String,
+        postal_code: String,
+        name: Option<String>,
+        phone_number: Option<String>,
+    ) -> Result<CartUpdated, UpdateAddressError>;
+
+    fn update_item_quantity(
+        &mut self,
+        product_id: String,
+        quantity: u32,
+    ) -> Result<CartUpdated, UpdateItemQuantityError>;
+
+    #[endpoint(put = "/shipping-address")]
+    fn update_shipping_address(
+        &mut self,
+        street: String,
+        city: String,
+        state_or_region: String,
+        country: String,
+        postal_code: String,
+        name: Option<String>,
+        phone_number: Option<String>,
+    ) -> Result<CartUpdated, UpdateAddressError>;
+}
+
+struct CartAgentImpl {
+    _id: String,
+    state: Option<Cart>,
+}
+
+impl CartAgentImpl {
+    fn get_state(&mut self) -> &mut Cart {
+        self.state.get_or_insert(Cart::new(self._id.clone()))
+    }
+
+    fn with_state<T>(&mut self, f: impl FnOnce(&mut Cart) -> T) -> T {
+        f(self.get_state())
+    }
+}
+
+#[agent_implementation]
+impl CartAgent for CartAgentImpl {
+    fn new(id: String) -> Self {
+        CartAgentImpl {
+            _id: id,
+            state: None,
+        }
+    }
+
+    async fn get_cart(&mut self) -> Option<Cart> {
+        info!("Getting cart");
+        if let Some(cart) = self.state.as_mut() {
+            let mut items = Vec::new();
+            for item in cart.items.clone() {
+                let product_id = item.product_id;
+                let quantity = item.quantity;
+
+                let product_client = ProductAgentClient::get(product_id.clone());
+                let pricing_client = PricingAgentClient::get(product_id.clone());
+
+                let (product, pricing) = join(
+                    product_client.get_product(),
+                    pricing_client
+                        .get_price(cart.currency.clone(), PRICING_REGION_DEFAULT.to_string()),
+                )
+                .await;
+
+                if let (Some(product), Some(pricing)) = (product, pricing) {
+                    items.push(get_cart_item(product, pricing, quantity));
+                }
+            }
+            cart.set_items(items);
+            Some(cart.clone())
+        } else {
+            None
+        }
+    }
+
+    async fn add_item(
+        &mut self,
+        product_id: String,
+        quantity: u32,
+    ) -> Result<CartUpdated, AddItemError> {
+        let state = self.get_state();
+
+        info!(
+            "Adding item with product {} to the cart of user {}",
+            product_id, state.user_id
+        );
+
+        let updated = state.update_item_quantity(product_id.clone(), quantity, true);
+
+        if !updated {
+            let product_client = ProductAgentClient::get(product_id.clone());
+            let pricing_client = PricingAgentClient::get(product_id.clone());
+
+            let (product, pricing) = join(
+                product_client.get_product(),
+                pricing_client
+                    .get_price(state.currency.clone(), PRICING_REGION_DEFAULT.to_string()),
+            )
+            .await;
+
+            match (product, pricing) {
+                (Some(product), Some(pricing)) => {
+                    state.add_item(get_cart_item(product, pricing, quantity));
+                }
+                (None, _) => {
+                    return Err(AddItemError::ProductNotFound(ProductNotFoundError::new(
+                        product_id,
+                    )));
+                }
+                _ => {
+                    return Err(AddItemError::PricingNotFound(PricingNotFoundError::new(
+                        product_id,
+                    )));
+                }
+            }
+        }
+        Ok(CartUpdated {
+            user_id: state.user_id.clone(),
+        })
+    }
+
+    async fn checkout(&mut self) -> Result<OrderConfirmation, CheckoutError> {
+        let state = self.get_state();
+        let order_id = generate_order_id();
+        info!("Checkout for order {}", order_id);
+
+        create_order(order_id.clone(), state.clone()).await?;
+
+        state.order_created(order_id.clone());
+
+        ShoppingAssistantAgentClient::get(state.user_id.clone()).trigger_recommend_items();
+
+        Ok(OrderConfirmation {
+            user_id: state.user_id.clone(),
+            order_id,
+        })
+    }
+
+    fn update_email(&mut self, email: String) -> Result<CartUpdated, UpdateEmailError> {
+        self.with_state(|state| {
+            info!(
+                "Updating email {} for the cart of user {}",
+                email, state.user_id
+            );
+
+            match EmailAddress::from_str(email.as_str()) {
+                Ok(_) => {
+                    state.set_email(email);
+                    Ok(CartUpdated {
+                        user_id: state.user_id.clone(),
+                    })
+                }
+                Err(e) => Err(UpdateEmailError::EmailNotValid(EmailNotValidError {
+                    message: format!("Invalid email: {e}"),
+                })),
+            }
+        })
+    }
+
+    fn clear(&mut self) {
+        self.with_state(|state| {
+            info!("Clearing the cart of user {}", state.user_id);
+            state.clear();
+        })
+    }
+
+    fn remove_item(&mut self, product_id: String) -> Result<CartUpdated, RemoveItemError> {
+        self.with_state(|state| {
+            info!(
+                "Removing item with product {} from the cart of user {}",
+                product_id, state.user_id
+            );
+
+            if state.remove_item(product_id.clone()) {
+                Ok(CartUpdated {
+                    user_id: state.user_id.clone(),
+                })
+            } else {
+                Err(RemoveItemError::ItemNotFound(ItemNotFoundError::new(
+                    product_id,
+                )))
+            }
+        })
+    }
+
+    fn update_billing_address(
+        &mut self,
+        street: String,
+        city: String,
+        state_or_region: String,
+        country: String,
+        postal_code: String,
+        name: Option<String>,
+        phone_number: Option<String>,
+    ) -> Result<CartUpdated, UpdateAddressError> {
+        self.with_state(|state| {
+            info!(
+                "Updating billing address in the cart of user {}",
+                state.user_id
+            );
+
+            let address = Address {
+                street,
+                city,
+                state_or_region,
+                country,
+                postal_code,
+                name,
+                phone_number,
+            };
+            state.set_billing_address(address);
+            Ok(CartUpdated {
+                user_id: state.user_id.clone(),
+            })
+        })
+    }
+
+    fn update_item_quantity(
+        &mut self,
+        product_id: String,
+        quantity: u32,
+    ) -> Result<CartUpdated, UpdateItemQuantityError> {
+        self.with_state(|state| {
+            info!(
+                "Updating quantity of item with product {} to {} in the cart of user {}",
+                product_id, quantity, state.user_id
+            );
+
+            let updated = state.update_item_quantity(product_id.clone(), quantity, false);
+
+            if updated {
+                Ok(CartUpdated {
+                    user_id: state.user_id.clone(),
+                })
+            } else {
+                Err(UpdateItemQuantityError::ItemNotFound(
+                    ItemNotFoundError::new(product_id),
+                ))
+            }
+        })
+    }
+
+    fn update_shipping_address(
+        &mut self,
+        street: String,
+        city: String,
+        state_or_region: String,
+        country: String,
+        postal_code: String,
+        name: Option<String>,
+        phone_number: Option<String>,
+    ) -> Result<CartUpdated, UpdateAddressError> {
+        self.with_state(|state| {
+            info!(
+                "Updating shipping address in the cart of user {}",
+                state.user_id
+            );
+
+            let address = Address {
+                street,
+                city,
+                state_or_region,
+                country,
+                postal_code,
+                name,
+                phone_number,
+            };
+            state.set_shipping_address(address);
+            Ok(CartUpdated {
+                user_id: state.user_id.clone(),
+            })
+        })
+    }
+
+    async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
+        let data: Option<Cart> = crate::common::snapshot::deserialize(&bytes)?;
+        self.state = data;
+        Ok(())
+    }
+
+    async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
+        crate::common::snapshot::serialize(&self.state)
+    }
+}
