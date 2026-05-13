@@ -31,6 +31,10 @@ components:
     #
     env:
       OPENROUTER_API_KEY:  '{{ OPENROUTER_KEY }}'
+secretDefaults:
+  local:
+    llm:
+      apiKey: '{{ OPENROUTER_KEY }}'
 httpApi:
   deployments:
     local:

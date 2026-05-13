@@ -36,7 +36,7 @@ All core agents (Product, Pricing, Cart, Order, and Shopping Assistant) have the
 ## Quick Start
 
 1. **Prerequisites**:
-    - Install [Golem CLI](https://learn.golem.cloud/cli) (version 1.5.0+)
+    - Install [Golem CLI](https://learn.golem.cloud/cli) (version 1.5.1+)
     - [Running Golem Environment](https://learn.golem.cloud/quickstart#running-golem)
 
    See [Golem Quickstart](https://learn.golem.cloud/quickstart) for more information.
