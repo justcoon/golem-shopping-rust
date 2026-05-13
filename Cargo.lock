@@ -341,9 +341,11 @@ dependencies = [
 
 [[package]]
 name = "golem-ai-llm"
-version = "0.0.0"
-source = "git+https://github.com/golemcloud/golem-ai?tag=v0.5.0#f0e2af7bdf36938c5f7c0ee88b1938653315bef6"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "757c99a19bf76f964c9af51826b4e19e850e480d58db3f8c5961c8c3c97c6dc2"
 dependencies = [
+ "async-trait",
  "golem-rust",
  "golem-wasi-http",
  "indoc",
@@ -356,8 +358,9 @@ dependencies = [
 
 [[package]]
 name = "golem-ai-llm-openrouter"
-version = "0.0.0"
-source = "git+https://github.com/golemcloud/golem-ai?tag=v0.5.0#f0e2af7bdf36938c5f7c0ee88b1938653315bef6"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f64a0fd1b888f8c9c3d1aafa9210a571fc6fe74df3d5f990b3fdd3a72cbf7349"
 dependencies = [
  "base64",
  "golem-ai-llm",
@@ -370,9 +373,9 @@ dependencies = [
 
 [[package]]
 name = "golem-rust"
-version = "2.0.0"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ea024a64286f601153573384530faa23b665b628b81eb27b2c204b0e93d6141"
+checksum = "008d7dab3afd341260041ab0551e721dd724b21bbf06f098f191a691454b0f72"
 dependencies = [
  "async-trait",
  "chrono",
@@ -393,9 +396,9 @@ dependencies = [
 
 [[package]]
 name = "golem-rust-macro"
-version = "2.0.0"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d01cd51a38737e1431ede857b99cc2955731c02960f56663d0c830541d72170"
+checksum = "d3322c6f34c6acf5ba1194af562221360b458480e4722d068378f4dbff089f32"
 dependencies = [
  "heck 0.5.0",
  "humantime",

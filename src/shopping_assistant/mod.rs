@@ -108,7 +108,7 @@ async fn get_llm_recommendations(items: Vec<OrderItem>) -> Result<LlmRecommended
     });
 
     let llm_response =
-        golem_ai_llm_openrouter::DurableOpenRouter::send(vec![system_event, user_event], config);
+        golem_ai_llm_openrouter::DurableOpenRouter::send(vec![system_event, user_event], config).await;
 
     match llm_response {
         Ok(response) => {
