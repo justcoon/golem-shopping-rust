@@ -341,9 +341,9 @@ dependencies = [
 
 [[package]]
 name = "golem-ai-llm"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "757c99a19bf76f964c9af51826b4e19e850e480d58db3f8c5961c8c3c97c6dc2"
+checksum = "5d2f3d162e39f4c02326dcf2805f9a36a7a2ea701e3c7b4c2d454ec6eba29cf4"
 dependencies = [
  "async-trait",
  "golem-rust",
@@ -354,13 +354,14 @@ dependencies = [
  "nom",
  "thiserror",
  "wasi-logger",
+ "wasip2",
 ]
 
 [[package]]
 name = "golem-ai-llm-openrouter"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f64a0fd1b888f8c9c3d1aafa9210a571fc6fe74df3d5f990b3fdd3a72cbf7349"
+checksum = "f66a16cd0c9751cabd09a0f7a4d1d500ffc63a659e28536a7ceeca5970aa1fbd"
 dependencies = [
  "base64",
  "golem-ai-llm",

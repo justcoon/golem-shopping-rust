@@ -1,7 +1,7 @@
 # Schema for IDEA:
-# $schema: https://schema.golem.cloud/app/golem/1.5.0-dev.2/golem.schema.json
+# $schema: https://schema.golem.cloud/app/golem/1.5.1/golem.schema.json
 # Schema for vscode-yaml:
-# yaml-language-server: $schema=https://schema.golem.cloud/app/golem/1.5.0-dev.2/golem.schema.json
+# yaml-language-server: $schema=https://schema.golem.cloud/app/golem/1.5.1/golem.schema.json
 
 # Field reference: https://learn.golem.cloud/app-manifest#field-reference
 # Creating HTTP APIs: https://learn.golem.cloud/invoke/making-custom-apis
@@ -35,6 +35,11 @@ secretDefaults:
   local:
     llm:
       apiKey: '{{ OPENROUTER_KEY }}'
+agents:
+  ShoppingAssistantAgent:
+    config:
+      llm:
+        model: "tngtech/deepseek-r1t2-chimera:free"
 httpApi:
   deployments:
     local:

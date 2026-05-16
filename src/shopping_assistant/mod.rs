@@ -2,7 +2,9 @@ use crate::cart::CartAgentClient;
 use crate::order::{OrderAgentClient, OrderItem};
 use futures::future::join_all;
 use golem_ai_llm::LlmProvider;
-use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
+use golem_ai_llm::config::SecretSource;
+use golem_rust::agentic::{Config, Secret};
+use golem_rust::{ConfigSchema, Schema, agent_definition, agent_implementation, endpoint};
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -56,14 +58,21 @@ fn reduce_order_items(items: Vec<OrderItem>) -> Vec<OrderItem> {
         .collect()
 }
 
-async fn get_llm_recommendations(items: Vec<OrderItem>) -> Result<LlmRecommendedItems, String> {
+async fn get_llm_recommendations(
+    items: Vec<OrderItem>,
+    config: LlmConfig,
+) -> Result<LlmRecommendedItems, String> {
     use golem_ai_llm::model::*;
     log::info!("LLM recommendations - items: {}", items.len());
     let current_items: Vec<LlmOrderItem> = items.into_iter().map(LlmOrderItem::from).collect();
     let current_items_string = serde_json::to_string(&current_items).map_err(|e| e.to_string())?;
 
+    let provider_config = golem_ai_llm_openrouter::OpenRouterConfig {
+        api_key: SecretSource::from_handle(config.api_key),
+    };
+
     let config = Config {
-        model: "tngtech/deepseek-r1t2-chimera:free".to_string(),
+        model: config.model.clone(),
         max_tokens: None,
         temperature: None,
         stop_sequences: None,
@@ -107,8 +116,12 @@ async fn get_llm_recommendations(items: Vec<OrderItem>) -> Result<LlmRecommended
         content: vec![ContentPart::Text(user_message.to_string())],
     });
 
-    let llm_response =
-        golem_ai_llm_openrouter::DurableOpenRouter::send(vec![system_event, user_event], config).await;
+    let llm_response = golem_ai_llm_openrouter::DurableOpenRouter::send(
+        provider_config,
+        vec![system_event, user_event],
+        config,
+    )
+    .await;
 
     match llm_response {
         Ok(response) => {
@@ -174,9 +187,22 @@ pub struct RecommendedItems {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(ConfigSchema)]
+pub struct LlmConfig {
+    #[config_schema(secret)]
+    pub api_key: Secret<String>,
+    pub model: String,
+}
+
+#[derive(ConfigSchema)]
+pub struct AgentConfig {
+    #[config_schema(nested)]
+    pub llm: LlmConfig,
+}
+
 #[agent_definition(mount = "/v1/assistant/{id}")]
 trait ShoppingAssistantAgent {
-    fn new(id: String) -> Self;
+    fn new(id: String, #[agent_config] config: Config<AgentConfig>) -> Self;
 
     #[endpoint(get = "/recommended-items")]
     fn get_recommended_items(&self) -> RecommendedItems;
@@ -186,14 +212,16 @@ trait ShoppingAssistantAgent {
 
 struct ShoppingAssistantAgentImpl {
     _id: String,
+    config: Config<AgentConfig>,
     recommended_items: RecommendedItems,
 }
 
 #[agent_implementation]
 impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
-    fn new(id: String) -> Self {
+    fn new(id: String, #[agent_config] config: Config<AgentConfig>) -> Self {
         ShoppingAssistantAgentImpl {
             _id: id,
+            config,
             recommended_items: RecommendedItems {
                 product_ids: Vec::new(),
                 product_brands: Vec::new(),
@@ -208,7 +236,7 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
 
     async fn recommend_items(&mut self) -> bool {
         let order_items = get_order_items(self._id.clone()).await;
-        let recommended_items = get_llm_recommendations(order_items).await;
+        let recommended_items = get_llm_recommendations(order_items, self.config.get().llm).await;
 
         match recommended_items {
             Ok(recommended_items) => {
