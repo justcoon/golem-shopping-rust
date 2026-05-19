@@ -39,7 +39,7 @@ agents:
   ShoppingAssistantAgent:
     config:
       llm:
-        model: "tngtech/deepseek-r1t2-chimera:free"
+        model: "deepseek/deepseek-v4-flash:free"
 httpApi:
   deployments:
     local:
