@@ -5,6 +5,8 @@ use golem_ai_llm::LlmProvider;
 use golem_ai_llm::config::SecretSource;
 use golem_rust::agentic::{Config, Secret};
 use golem_rust::{ConfigSchema, Schema, agent_definition, agent_implementation, endpoint};
+use golem_rust::retry::*;
+use std::time::Duration;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -67,12 +69,20 @@ async fn get_llm_recommendations(
     let current_items: Vec<LlmOrderItem> = items.into_iter().map(LlmOrderItem::from).collect();
     let current_items_string = serde_json::to_string(&current_items).map_err(|e| e.to_string())?;
 
+    // let policy = NamedPolicy::named(
+    //     "generate-embedding",
+    //     Policy::exponential(Duration::from_millis(200), 2.0)
+    //         .clamp(Duration::from_millis(100), Duration::from_secs(5))
+    //         .with_jitter(0.15)
+    //         .max_retries(5)
+    // );
+
     let provider_config = golem_ai_llm_openrouter::OpenRouterConfig {
         api_key: SecretSource::from_handle(config.api_key),
     };
 
     let config = Config {
-        model: config.model.clone(),
+        model: config.model.get(),
         max_tokens: None,
         temperature: None,
         stop_sequences: None,
@@ -115,6 +125,8 @@ async fn get_llm_recommendations(
         name: None,
         content: vec![ContentPart::Text(user_message.to_string())],
     });
+
+    // with_named_policy_async(policy)
 
     let llm_response = golem_ai_llm_openrouter::DurableOpenRouter::send(
         provider_config,
@@ -191,7 +203,8 @@ pub struct RecommendedItems {
 pub struct LlmConfig {
     #[config_schema(secret)]
     pub api_key: Secret<String>,
-    pub model: String,
+    #[config_schema(secret)]
+    pub model: Secret<String>,
 }
 
 #[derive(ConfigSchema)]
