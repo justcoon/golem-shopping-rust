@@ -28,18 +28,12 @@ components:
     #     ENV_VAR_1: "{{ ENV_VAR_1 }}"
     #     RENAMED_VAR_2: "{{ ENV_VAR_2 }}"
     #     COMPOSED_VAR_3: "{{ ENV_VAR_3 }}-{{ ENV_VAR_4}}"
-    #
-    env:
-      OPENROUTER_API_KEY:  '{{ OPENROUTER_KEY }}'
+    #\
 secretDefaults:
   local:
     llm:
       apiKey: '{{ OPENROUTER_KEY }}'
-agents:
-  ShoppingAssistantAgent:
-    config:
-      llm:
-        model: "deepseek/deepseek-v4-flash:free"
+      model: "openrouter/owl-alpha"
 httpApi:
   deployments:
     local:
