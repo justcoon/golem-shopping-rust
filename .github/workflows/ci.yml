@@ -116,7 +116,7 @@ jobs:
       - name: Install Rust wasm32-wasip2 target
         run: rustup target add wasm32-wasip2
       - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@v1.15.1
+        uses: cargo-bins/cargo-binstall@v1.16.4
       - name: Install cargo-component
         run: cargo binstall --no-confirm cargo-component || true
       - name: Install protobuf
