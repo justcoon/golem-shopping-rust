@@ -85,7 +85,7 @@ jobs:
         run: |
           echo "Golem CLI version: $(golem-cli --version | cut -d ' ' -f 2)"
           echo "Golem version: $(golem --version | cut -d ' ' -f 2)"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           path: /usr/local/bin/golem*
           name: golem-tools
@@ -152,7 +152,7 @@ jobs:
           curl http://localhost:9006/openapi.yaml
           echo "OpenAPI spec verification completed"
       - name: Save components
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           path: golem-temp/agents/*.wasm
           name: components
