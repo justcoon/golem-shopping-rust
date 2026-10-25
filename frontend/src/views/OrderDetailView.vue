@@ -19,8 +19,11 @@ const orderStatuses = [
   // { value: 'DELIVERED', label: 'Delivered' }
 ];
 
-function formatDate(d: DateTime) {
-  return dateTimeToDate(d).toLocaleDateString("en-US", {
+function formatDate(d: DateTime | null | undefined) {
+  if (!d) return "";
+  const date = dateTimeToDate(d);
+  if (isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -30,6 +33,7 @@ function formatDate(d: DateTime) {
 }
 
 function formatStatus(status: string) {
+  if (!status) return "";
   return status
     .split("_")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
@@ -46,20 +50,22 @@ function getStatusClass(status: string) {
 
 function isStatusActive(status: string) {
   if (!order.value) return false;
-  return order.value["order-status"] === status;
+  const current = order.value["order_status"] || (order.value as any)["order-status"];
+  return current === status;
 }
 
 function isStatusCompleted(status: string) {
   if (!order.value) return false;
   const statusOrder = ["PROCESSING", "SHIPPED", "DELIVERED"];
-  const currentStatusIndex = statusOrder.indexOf(order.value["order-status"]);
+  const current = order.value["order_status"] || (order.value as any)["order-status"];
+  const currentStatusIndex = statusOrder.indexOf(current);
   const statusIndex = statusOrder.indexOf(status);
   return currentStatusIndex >= statusIndex;
 }
 
 function getStatusDate() {
   if (!order.value) return null;
-  return order.value["updated-at"];
+  return order.value["updated_at"] || (order.value as any)["updated-at"];
 }
 
 async function fetchOrder() {

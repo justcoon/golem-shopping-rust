@@ -7,11 +7,13 @@ description: "Troubleshooting Golem build failures and debugging manifest file (
 
 Both `golem` and `golem-cli` can be used — all commands below work with either binary.
 
+For the normal build workflow and `golem build` usage, load `golem-build`. This skill focuses on what to do when that build fails.
+
 ## Build Pipeline Overview
 
 `golem build` executes a multi-step pipeline. Understanding which step failed is the first step to diagnosing problems:
 
-1. **Check** — verifies build tools are installed and dependencies are correct
+1. **Check** — proposes dependency and configuration fixes first, then verifies build tools
 2. **Build** — runs language-specific compilation commands
 3. **Add Metadata** — embeds component name and version into the output WASM
 4. **Generate Bridge** — generates bridge SDK code for inter-component communication
@@ -23,19 +25,18 @@ golem build --step check --yes      # Run only the check step
 golem build --step build --yes      # Run only the build step
 ```
 
-## Step 1: Build Tool Requirement Checks
+## Build Tool Requirement Checks (After Dependency Fixes)
 
 The **check** step verifies that required system tools are installed and meet minimum version requirements. The checks are language-specific:
 
 ### Rust Projects
 | Tool | Check | Install Hint |
 |------|-------|--------------|
-| `rustup` | `rustup --version` (minimum version enforced) | https://www.rust-lang.org/tools/install |
 | `rustc` | `rustc --version` (minimum version enforced) | `rustup install stable && rustup default stable` |
 | `cargo` | `cargo version` (minimum version enforced) | Installed with Rust toolchain |
 | `wasm32-wasip2` target | `rustup target list --installed` | `rustup target add wasm32-wasip2` |
 
-### TypeScript Projects
+### TypeScript and Effect Projects
 | Tool | Check | Install Hint |
 |------|-------|--------------|
 | `node` | `node --version` (minimum version enforced) | https://nodejs.org/ |
@@ -45,17 +46,17 @@ The **check** step verifies that required system tools are installed and meet mi
 | Tool | Check | Install Hint |
 |------|-------|--------------|
 | `moon` | `moon version` (minimum version enforced) | https://docs.moonbitlang.com |
+| `wasm-tools` | `wasm-tools --version` (minimum version enforced) | https://github.com/bytecodealliance/wasm-tools |
 
 If a tool is missing or below the minimum version, the check step fails with an error message and an install hint. To skip these checks (e.g., if you know tools are installed but detection fails), use `--skip-check`.
 
-## Step 2: Dependency Validation and Auto-Fix
+## Dependency Validation and Auto-Fix (Before Tool Checks)
 
-After tool checks, `golem build` validates project dependencies and can auto-fix them:
+Before tool checks, `golem build` validates project dependencies and can apply confirmed fixes. Accepted writes can remain even if a later tool check fails. Rust target detection can use `rustup`, but there is no separate minimum-version check for `rustup` itself.
 
 ### Rust Dependency Checks
 The CLI inspects every Rust component's `Cargo.toml` (and workspace `Cargo.toml` if present) for:
 - **`golem-rust`** — must be present with a semantically compatible version (or matching path for local development)
-- **`wstd`** — checked if present, version compatibility verified
 - **`log`** — checked if present, ensures the `kv` feature is enabled
 - **`serde`** — checked if present, ensures the `derive` feature is enabled
 - **`serde_json`** — checked if present, version compatibility verified
@@ -65,20 +66,20 @@ If dependencies are outdated or missing required features, the CLI shows a diff 
 ### TypeScript Dependency Checks
 The CLI inspects the root `package.json` for:
 - **`@golemcloud/golem-ts-sdk`** — must be present with a compatible version
-- **`@golemcloud/golem-ts-typegen`** (devDependency) — must be present
-- **Rollup plugins** (`@rollup/plugin-alias`, `@rollup/plugin-node-resolve`, `@rollup/plugin-typescript`, `@rollup/plugin-commonjs`, `@rollup/plugin-json`) — version compatibility checked
+- **Rollup plugins** (`@rollup/plugin-node-resolve`, `@rollup/plugin-typescript`, `@rollup/plugin-commonjs`, `@rollup/plugin-json`) — version compatibility checked
 - **`typescript`**, **`rollup`**, **`tslib`**, **`@types/node`** — version compatibility checked
 
 The CLI also validates `tsconfig.json` settings:
 - `compilerOptions.moduleResolution` must be `"bundler"`
-- `compilerOptions.experimentalDecorators` must be `true`
-- `compilerOptions.emitDecoratorMetadata` must be `true`
+
+### Effect Dependency Checks
+The CLI inspects the root `package.json` for `@golemcloud/effect-golem`, `effect`, and the shared Rollup/TypeScript build tooling. Effect components require `compilerOptions.moduleResolution` to be `"bundler"`, but do not require the TypeScript SDK package.
 
 ### AGENTS.md and Skill Files
-The CLI checks that the project's `AGENTS.md` and `.agents/skills/` directory contain up-to-date content matching the current CLI version's templates. If they are stale, the CLI updates them automatically during the build.
+The CLI checks that the project's `AGENTS.md` and `.agents/skills/` directory contain up-to-date content matching the current CLI version's templates. Stale guidance updates are part of the confirmation-controlled dependency and configuration fix plan; `--yes` accepts them.
 
-### Viewing Planned Fixes Without Applying
-Run the check step alone to see what the CLI wants to fix without building:
+### Checking and Applying Fixes Without Compilation
+Run the check step alone to validate and apply fixes without compiling components. This is **not a dry run**: `--yes` accepts dependency and configuration writes, including template guidance updates. Omit `--yes` to review the proposed dependency fixes at the confirmation prompt and decline them; do not treat the check step as a read-only inspection command.
 
 ```shell
 golem build --step check --yes
@@ -90,7 +91,7 @@ golem build --step check --yes
 The CLI cannot find a required tool. Check that it is installed and on your `PATH`:
 ```shell
 which cargo     # Rust
-which node      # TypeScript
+which node      # TypeScript or Effect
 which moon      # MoonBit
 ```
 
@@ -106,8 +107,8 @@ Fix: `rustup target add wasm32-wasip2`
 ### Dependency Version Mismatch
 The CLI shows a diff of the changes it wants to make. Review the diff — it will update version numbers or add missing features. Pass `--yes` to auto-accept.
 
-### TypeScript `tsconfig.json` Issues
-If `moduleResolution` is not set to `"bundler"` or decorator settings are missing, the build will fail during type checking. The CLI auto-fixes these during the check step.
+### TypeScript or Effect `tsconfig.json` Issues
+If `moduleResolution` is not set to `"bundler"`, the build will fail during type checking. The CLI auto-fixes this during the check step.
 
 ### Up-to-Date Check Confusion
 `golem build` tracks file hashes to skip unchanged steps. If files were modified outside the build (e.g., by `cargo build`), the check may be stale. Force a full rebuild:
@@ -132,7 +133,7 @@ golem component manifest-trace
 This command outputs a detailed trace for each component showing:
 
 - **Applied Layers** — the ordered list of configuration layers that contributed to the final values (e.g., component template, component definition, agent template, agent common, environment presets, custom presets)
-- **Property Values and Origins** — for each property (`config`, `env`, `wasiConfig`, `plugins`, `files`, `build`, `clean`, `componentWasm`, `outputWasm`), the final resolved value plus a trace of which layer introduced or modified it
+- **Property Values and Origins** — for each property (`config`, `env`, `plugins`, `files`, `build`, `clean`, `componentWasm`, `outputWasm`), the final resolved value plus a trace of which layer introduced or modified it
 - **Merge Operations** — whether values were merged (showing inserted/updated entries) or entirely replaced, and from which layer
 
 ### Example Usage
@@ -140,10 +141,9 @@ This command outputs a detailed trace for each component showing:
 ```shell
 # Trace all components
 golem component manifest-trace
-
-# Trace a specific component
-golem component manifest-trace my-app:main
 ```
+
+The handler currently ignores component-name arguments and traces all components. Find the component of interest in the output rather than relying on a name argument to filter it.
 
 ### What to Look For
 
@@ -158,7 +158,11 @@ golem component manifest-trace my-app:main
 To see how the trace changes under a specific environment:
 
 ```shell
-golem component manifest-trace -e staging
+golem component manifest-trace -E staging
 ```
 
 This activates the `staging` environment's presets, letting you verify that environment-specific overrides are applied correctly.
+
+## Related Skills
+
+- Load `golem-build` for the normal `golem build` workflow and options

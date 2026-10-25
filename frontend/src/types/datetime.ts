@@ -1,22 +1,27 @@
 /**
- * Represents a point in time with seconds and nanoseconds precision
+ * Represents a point in time, formatted as an ISO 8601 string or an object with a timestamp property.
  */
-export interface DateTime {
-  timestamp: string;
-}
+export type DateTime = string | { timestamp: string };
 
 /**
- * Converts a JavaScript Date object to a DateTime
+ * Converts a JavaScript Date object to a DateTime ISO string
  */
 export function dateToDateTime(date: Date): DateTime {
-   return {
-     timestamp: date.toISOString(),
-   };
+  return date.toISOString();
 }
 
 /**
- * Converts a DateTime to a JavaScript Date object
+ * Converts a DateTime (ISO string or { timestamp: string }) to a JavaScript Date object
  */
-export function dateTimeToDate(dateTime: DateTime): Date {
-  return new Date(dateTime.timestamp);
+export function dateTimeToDate(dateTime: DateTime | null | undefined): Date {
+  if (!dateTime) {
+    return new Date();
+  }
+  if (typeof dateTime === "string") {
+    return new Date(dateTime);
+  }
+  if (typeof dateTime === "object" && "timestamp" in dateTime) {
+    return new Date(dateTime.timestamp);
+  }
+  return new Date(dateTime as any);
 }

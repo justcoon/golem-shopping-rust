@@ -7,7 +7,6 @@ use golem_rust::agentic::{Config, Secret};
 use golem_rust::retry::*;
 use golem_rust::{ConfigSchema, Schema, agent_definition, agent_implementation, endpoint};
 
-use golem_rust::operation;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -84,7 +83,7 @@ async fn get_llm_recommendations(
     };
 
     let config = Config {
-        model: config.model.get(),
+        model: config.model.get().map_err(|e| format!("{e:?}"))?,
         max_tokens: None,
         temperature: None,
         stop_sequences: None,
@@ -253,7 +252,14 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
 
     async fn recommend_items(&mut self) -> bool {
         let order_items = get_order_items(self._id.clone()).await;
-        let recommended_items = get_llm_recommendations(order_items, self.config.get().llm).await;
+        let llm_config = match self.config.get() {
+            Ok(config) => config.llm,
+            Err(e) => {
+                log::error!("Config error: {:?}", e);
+                return false;
+            }
+        };
+        let recommended_items = get_llm_recommendations(order_items, llm_config).await;
 
         match recommended_items {
             Ok(recommended_items) => {
@@ -276,10 +282,21 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
         }
     }
 
-    async fn load_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), String> {
+    async fn load_snapshot(
+        bytes: Vec<u8>,
+        context: golem_rust::agentic::SnapshotRestoreContext,
+    ) -> Result<Self, String> {
         let data: RecommendedItems = crate::common::snapshot::deserialize(&bytes)?;
-        self.recommended_items = data;
-        Ok(())
+        let mut parameters = golem_rust::agentic::DirectAgentInput::new(context.parameters)
+            .map_err(|error| error.to_string())?;
+        let id: String = parameters.take().map_err(|error| error.to_string())?;
+        parameters.finish().map_err(|error| error.to_string())?;
+
+        Ok(Self {
+            _id: id,
+            config: Config::new(),
+            recommended_items: data,
+        })
     }
 
     async fn save_snapshot(&self) -> Result<Vec<u8>, String> {

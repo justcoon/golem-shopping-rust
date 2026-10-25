@@ -67,7 +67,7 @@ environments:
 Key choices:
 
 - **`server: local`** — tests run against a local server you start and stop yourself, never against `cloud`.
-- **`cli.autoConfirm: true` and `cli.reset: true`** — every `golem -E test deploy` becomes equivalent to `golem deploy --yes --reset`, deleting any leftover agents from a previous test run before redeploying.
+- **`cli.autoConfirm: true` and `cli.reset: true`** — every `golem -E test deploy` becomes equivalent to `golem deploy --yes --reset`, deploying and then deleting leftover agents. Guest KV data remains unless the application clears it separately.
 - **`cli.format: json`** — lets the test harness parse CLI output reliably.
 - **`deployment.compatibilityCheck: false` / `versionCheck: false`** — these checks are valuable in production but slow down rapid test iteration on a throwaway server.
 
@@ -105,7 +105,7 @@ agents:
 
 ## 3. Start an Isolated Local Server for the Test Run
 
-Always run the test server with its own data directory and let it pick free ports. This guarantees that:
+Run each test server with its own unique data directory and ports file (the paths below assume one run at a time). Remove any stale ports file before starting and let the server pick free ports. This ensures that:
 
 - Tests never collide with a developer's local server (which uses the platform-specific default data dir and ports `9881` / `9006` / `9007`).
 - Multiple test runs (locally or in CI) can execute in parallel.
@@ -118,7 +118,7 @@ golem server run \
   --custom-request-port 0 \
   --mcp-port 0 \
   --ports-file ./tests/fixtures/ports.json \
-  --clean
+  --clean --yes
 ```
 
 | Flag | Why it matters for tests |
@@ -150,22 +150,63 @@ The `--ports-file` is written **atomically once all services are ready**, so pol
 | `customRequestPort` | HTTP API endpoints exposed by the application |
 | `mcpPort` | MCP server requests |
 
-If the test environment in `golem.yaml` uses the built-in `server: local` it always points at `http://localhost:9881`. When you bind to random ports for tests, override the URL with a custom server block instead, templating the port in from the harness:
+The CLI does **not** read `ports.json` automatically. Before any deploy or agent CLI command, set the built-in local URL in the harness environment and propagate it to every CLI subprocess:
+
+```shell
+export GOLEM_BUILTIN_LOCAL_URL="http://127.0.0.1:$(jq -er '.routerPort' tests/fixtures/ports.json)"
+```
+
+For random HTTP/MCP ports, generate an included manifest fragment **after discovery and before deploy** with `localServer.customRequestPort` and `localServer.mcpPort` set to the actual discovered nonzero values. Subdomain expansion then matches the running listeners. The router URL override above remains necessary; writing a ports file alone does not configure CLI connections.
+
+For example, in an isolated test copy of the application, include `golem-test-ports.json` from the root `golem.yaml` and generate that fragment with:
+
+```shell
+jq -e '{manifestVersion: "1.6.0", localServer: {customRequestPort: .customRequestPort, mcpPort: .mcpPort}}' \
+  tests/fixtures/ports.json > golem-test-ports.json
+```
+
+JSON is valid YAML. Every included fragment requires `manifestVersion: "1.6.0"`. Create the included file with `{"manifestVersion":"1.6.0"}` before starting the server so manifest loading succeeds, then replace it with the discovered ports before deploying. Do not define `localServer` elsewhere in this test manifest. Parallel runs need separate application copies or manifests as well as unique data paths, so they do not overwrite each other's fragment. Remove the generated fragment during teardown.
+
+Alternatively, for a single non-parallel test run, use stable nonzero manifest ports and start the server with those same ports (omit the three port-0 flags in step 3):
 
 ```yaml
+localServer:
+  routerPort: 9881
+  customRequestPort: 9006
+  mcpPort: 9007
+
 environments:
   test:
-    server:
-      url: "http://localhost:{{ GOLEM_TEST_ROUTER_PORT }}"
-      auth:
-        staticToken: "{{ GOLEM_TEST_TOKEN }}"
+    server: local
     componentPresets: test
     cli:
       autoConfirm: true
       reset: true
 ```
 
-The harness then exports `GOLEM_TEST_ROUTER_PORT` (read from `ports.json`) before invoking `golem`. If you prefer fixed ports during local debugging, drop `--router-port 0` and reference the defaults (`9881` / `9006` / `9007`) directly.
+`customRequestPort` and `mcpPort` make deployment `subdomain` values resolve to the configured HTTP API and MCP ports instead of the defaults. Do not set any manifest `localServer` port field to `0`; port `0` is only allowed when passed directly as a `golem server run` port flag.
+
+If it helps the test workflow to keep local server settings separate from the main manifest, use an included manifest fragment:
+
+```yaml
+includes:
+  - golem-local-server.yaml
+```
+
+Then define `localServer` in `golem-local-server.yaml`:
+
+```yaml
+manifestVersion: "1.6.0"
+
+localServer:
+  routerPort: 9881
+  customRequestPort: 9006
+  mcpPort: 9007
+  portsFile: .golem/ports.json
+  dataDir: .golem/data
+```
+
+`localServer` is a singleton across all manifest sources, so define it either in the main manifest or in the included file, not both. Include paths are relative to the manifest that declares `includes`; `localServer` path fields are relative to the manifest that declares `localServer`. If you select the manifest explicitly with `-A` / `--app-manifest-path`, pass the root `golem.yaml`; its `includes` are followed the same way as during auto-discovery.
 
 ## 5. Deploy Against the Test Environment
 
@@ -175,17 +216,17 @@ From the application root, target the test environment by name:
 golem -E test deploy
 ```
 
-Because the environment sets `cli.autoConfirm: true` and `cli.reset: true`, this is equivalent to `golem deploy --yes --reset` — every test run gets a freshly redeployed application with no agents carried over from earlier runs.
+With `GOLEM_BUILTIN_LOCAL_URL` exported from step 4, this deploy targets the discovered router. Because the environment sets `cli.autoConfirm: true` and `cli.reset: true`, this is equivalent to `golem deploy --yes --reset` — no agents carry over from earlier runs. Reset does not clear guest KV buckets; clear application KV separately or use a new server data directory for full isolation.
 
-For faster iteration during test development, reuse the same server process across multiple deploys; `--reset` only deletes the agents and environment on the server, not the server itself.
+For faster iteration during test development, reuse the same server process across multiple deploys. `--reset` deploys, then deletes existing agents of the deployed components; it does not delete the environment or restart the server. It does not clear domains, HTTP and MCP deployments, secrets, retry policies, plugins, or component revision history. The deployment still reconciles the manifest and can update these resources, including replacement of incompatible agent secrets.
 
 ## 6. Send Requests From Tests
 
 Inside the test code, invoke agents either via the CLI or by calling the HTTP / MCP endpoints directly:
 
-- **Management / invocation API** — `http://localhost:<routerPort>` (also where `golem -E test agent invoke ...` connects).
-- **HTTP API endpoints** — `http://localhost:<customRequestPort>/<your-route>`.
-- **MCP** — `http://localhost:<mcpPort>`.
+- **Management / invocation API** — `http://127.0.0.1:<routerPort>` (also where `golem -E test agent invoke ...` connects when it inherits `GOLEM_BUILTIN_LOCAL_URL`).
+- **HTTP API endpoints** — `http://<deployment-subdomain>.localhost:<customRequestPort>/<your-route>`, for example `http://test-api.localhost:<customRequestPort>/<your-route>`.
+- **MCP** — `http://<deployment-subdomain>.localhost:<mcpPort>/mcp`, for example `http://test-mcp.localhost:<mcpPort>/mcp`.
 
 Use the `httpApi.deployments.test`, `mcp.deployments.test`, `secretDefaults.test`, and `retryPolicyDefaults.test` sections of `golem.yaml` to provide test-specific routing and configuration; these sections are keyed by environment name.
 
@@ -193,7 +234,14 @@ Use the `httpApi.deployments.test`, `mcp.deployments.test`, `secretDefaults.test
 httpApi:
   deployments:
     test:
-      - domain: localhost           # Port comes from --custom-request-port
+      - subdomain: test-api  # resolves to test-api.localhost:<customRequestPort>
+        agents:
+          MyAgent: {}
+
+mcp:
+  deployments:
+    test:
+      - subdomain: test-mcp  # resolves to test-mcp.localhost:<mcpPort>
         agents:
           MyAgent: {}
 
@@ -204,28 +252,44 @@ secretDefaults:
 
 ## 7. Tear Down
 
-After the suite finishes:
+Register teardown before spawning the server and run it in a `finally` block, including after startup, deploy, or test failure:
 
 1. Send `SIGINT` / `SIGTERM` to the `golem server run` process.
-2. Optionally run `golem server clean --data-dir ./tests/fixtures/data` to wipe state, or just delete the directory.
-3. Remove `tests/fixtures/ports.json`.
+2. Await and reap the child with a bounded shutdown timeout. If it does not exit, force-kill it and await/reap it before proceeding. Do not remove files while the server can still write them.
+3. Only after the child has exited, delete the isolated test data directory, ports file, and generated manifest fragment. If using `golem server clean` instead, set `localServer.dataDir` to that isolated directory and verify the resolved path before passing `--yes`.
 
-Do **not** rely on `golem server clean` with the *default* data directory from a test — that would delete the developer's local development state. Always pass `--data-dir` explicitly.
+Do **not** run `golem server clean -X` from a test — that would delete the developer's default local development state. Keep test data isolated with manifest `localServer.dataDir`.
 
 ## End-to-End Skeleton
 
 Pseudocode for a typical test harness:
 
 ```text
-1. mkdir -p tests/fixtures/data
-2. spawn: golem server run --data-dir tests/fixtures/data \
-                          --router-port 0 --custom-request-port 0 --mcp-port 0 \
-                          --ports-file tests/fixtures/ports.json --clean
-3. wait until tests/fixtures/ports.json exists
-4. read ports → export GOLEM_TEST_ROUTER_PORT, GOLEM_TEST_CUSTOM_PORT, GOLEM_TEST_MCP_PORT
-5. run: golem -E test deploy
-6. run integration tests, hitting http://localhost:<port>...
-7. terminate the server process and clean up tests/fixtures/data
+allocate a unique run directory and an isolated application copy
+set data_dir and ports_file inside that run directory
+create the included fragment with {"manifestVersion":"1.6.0"}
+child = none
+try:
+    spawn child: golem server run --data-dir <data_dir> \
+                    --router-port 0 --custom-request-port 0 --mcp-port 0 \
+                    --ports-file <ports_file> --clean --yes
+    deadline = monotonic_now + startup_timeout
+    loop:
+        if child has exited: fail with exit status and server log
+        if monotonic_now >= deadline: fail with startup timeout and server log
+        if ports_file exists: break
+        wait briefly
+    read ports; validate all three are nonzero
+    set GOLEM_BUILTIN_LOCAL_URL to http://127.0.0.1:<routerPort> for every CLI subprocess
+    generate the included fragment with manifestVersion "1.6.0" and discovered HTTP/MCP ports
+    run golem -E test deploy from the isolated application copy
+    run tests against discovered ports and matching subdomain Host headers
+finally:
+    if child exists:
+        if child is alive: send SIGINT or SIGTERM
+        await/reap child with shutdown_timeout
+        on timeout: force-kill child; await/reap it
+    only after child exit (or spawn failure), remove data_dir, ports_file, and fragment
 ```
 
 ## Common Pitfalls

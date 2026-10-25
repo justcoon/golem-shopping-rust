@@ -22,7 +22,7 @@ Golem ships with the following built-in plugins, automatically registered and av
 | `endpoint` | Yes | OTLP collector endpoint URL (must start with `http://` or `https://`) |
 | `headers` | No | Comma-separated `key=value` pairs sent as HTTP headers (e.g., `x-api-key=secret,auth=token`) |
 | `signals` | No | Comma-separated telemetry types to export: `traces`, `logs`, `metrics`. Default: `traces` |
-| `service-name-mode` | No | How to set the `service.name` attribute: `agent-id` (default) uses the worker ID, `agent-type` uses the component ID |
+| `service-name-mode` | No | How to set the `service.name` attribute: `agent-id` (default) uses `<component UUID>/<agent identity>`, `agent-type` extracts the agent type name from the identity |
 
 ## Installing Plugins via golem.yaml
 
@@ -33,7 +33,7 @@ components:
   my-app:service:
     plugins:
       - name: golem-otlp-exporter
-        version: "1.1.5"
+        version: "1.5.8"
         parameters:
           endpoint: "http://localhost:4318"
           signals: "traces,logs,metrics"
@@ -42,7 +42,7 @@ agents:
   MyAgent:
     plugins:
       - name: golem-otlp-exporter
-        version: "1.1.5"
+        version: "1.5.8"
         parameters:
           endpoint: "https://otel-collector.example.com:4318"
           headers: "x-api-key=my-secret-key"
@@ -66,7 +66,7 @@ Plugin parameter values support **Jinja-style template substitution** using `{{ 
 ```yaml
 plugins:
   - name: golem-otlp-exporter
-    version: "1.1.5"
+    version: "1.5.8"
     parameters:
       endpoint: "{{ OTLP_ENDPOINT }}"
       headers: "x-api-key={{ OTLP_API_KEY }}"
@@ -83,7 +83,7 @@ componentTemplates:
   observability:
     plugins:
       - name: golem-otlp-exporter
-        version: "1.1.5"
+        version: "1.5.8"
         parameters:
           endpoint: "http://localhost:4318"
           signals: "traces,logs,metrics"
@@ -115,20 +115,25 @@ components:
 
 Use presets and environments to vary plugin parameters across deployment targets:
 
+Use the environment selector `app-env:production`. A plain `production` custom preset can become
+the default custom preset when it is the only one, applying the production endpoint in every environment.
+
+CLI output masking depends on the **parameter name**, not its value or the environment variable used to populate it. The OTLP plugin's `headers` parameter is not a sensitive-looking name, so credentials inside it are **not masked** in output such as `component get`, `component manifest-trace`, and deployment diffs. Environment substitution does not change this. Keep the plugin-defined name `headers`; renaming it to trigger masking breaks plugin configuration. Treat these outputs as sensitive and do not copy credential-bearing output into logs or shared transcripts.
+
 ```yaml
 components:
   my-app:service:
     plugins:
       - name: golem-otlp-exporter
-        version: "1.1.5"
+        version: "1.5.8"
         parameters:
           endpoint: "http://localhost:4318"
     presets:
-      production:
+      app-env:production:
         pluginsMergeMode: replace
         plugins:
           - name: golem-otlp-exporter
-            version: "1.1.5"
+            version: "1.5.8"
             parameters:
               endpoint: "https://otel.prod.example.com:4318"
               headers: "x-api-key={{ OTLP_API_KEY }}"
@@ -140,7 +145,7 @@ environments:
     componentPresets: debug
   production:
     server: cloud
-    componentPresets: production
+    componentPresets: app-env:production
 ```
 
 ## Managing Plugins via CLI
@@ -148,58 +153,44 @@ environments:
 ### Listing Available Plugins
 
 ```shell
-golem plugin list                     # List all registered plugins
+golem plugin list
+golem plugin list --account owner@example.com
+golem plugin list --account-id 2f6b30d9-bac2-4c67-9d4f-12ea89ba2211
 ```
 
-### Installing a Plugin on a Component (imperative)
+With no account option, the list includes plugins owned by the authenticated account and plugins granted to the selected environment. An explicit account lists plugins owned by that account. `--account` and `--account-id` conflict.
+
+### Inspecting and unregistering registry plugins
 
 ```shell
-golem component plugin install \
-  --component-name my-app:service \
-  --plugin-name golem-otlp-exporter \
-  --plugin-version "1.1.5" \
-  --priority 0 \
-  --param endpoint=http://localhost:4318 \
-  --param signals=traces,logs
+golem plugin get my-plugin 1.0.0
+golem plugin get --id 8fd5e4a2-9cab-4f8e-9d3a-1c2e4f567890
+golem plugin unregister my-plugin 1.0.0
+golem plugin unregister --id 8fd5e4a2-9cab-4f8e-9d3a-1c2e4f567890
 ```
 
-### Viewing Installed Plugins
+The name and version form requires both positional values and accepts `--account` or `--account-id`. The `--id` form conflicts with the positional identity and account scope. A positional UUID is a name, not an ID; use `--id` explicitly.
+
+Register a plugin from a JSON or YAML manifest, optionally for an explicit account:
 
 ```shell
-golem component plugin get \
-  --component-name my-app:service
+golem plugin register ./my-plugin.yaml
+golem plugin register ./my-plugin.yaml --account owner@example.com
 ```
 
-### Updating a Plugin
+The manifest requires `name`, `version`, `description`, `icon`, `homepage`, and `specs`. The registry currently accepts `OplogProcessor` specs, which identify the oplog-processor component with `componentId` and `componentRevision`.
 
-```shell
-golem component plugin update \
-  --component-name my-app:service \
-  --plugin-to-update 0 \
-  --priority 1 \
-  --param endpoint=https://new-endpoint:4318
-```
-
-### Uninstalling a Plugin
-
-```shell
-golem component plugin uninstall \
-  --component-name my-app:service \
-  --plugin-to-update 0
-```
-
-## Declarative vs Imperative
-
-- **Declarative (golem.yaml)**: Preferred for repeatable setups. Plugins are installed/updated on `golem deploy`. Configuration lives in version control.
-- **Imperative (CLI)**: Useful for quick one-off installations, debugging, or environments where the manifest is not available.
-
-When using `golem deploy`, the manifest is the source of truth — any plugins defined in `golem.yaml` are reconciled with the deployed state.
+Plugin installation is declarative. The retired `component plugin` and `project plugin` workflows are not available. Define installations in `golem.yaml`; `golem deploy` reconciles the manifest with deployed state.
 
 ## Plugin Priority
 
-When multiple plugins are installed, `priority` determines their execution order. Plugins with **higher priority values are applied first**. Priority is set explicitly via the CLI's `--priority` flag; in `golem.yaml`, the order in the `plugins` list determines priority (first entry = highest priority).
+When multiple plugins are installed, the order in the manifest's `plugins` list determines priority (first entry = highest priority).
 
 ## Documentation
 
 - App manifest reference: https://learn.golem.cloud/app-manifest
 - Full docs: https://learn.golem.cloud
+
+## Related Skills
+
+- For enabling the built-in `golem-otlp-exporter` plugin and exporting telemetry from agents, load the language-specific skill: `golem-enable-otlp-rust`, `golem-enable-otlp-ts`, `golem-enable-otlp-scala`, or `golem-enable-otlp-moonbit`

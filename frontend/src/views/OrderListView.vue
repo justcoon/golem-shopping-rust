@@ -14,8 +14,11 @@ const orders = computed(() => orderStore.orders);
 const isLoading = computed(() => orderStore.isLoading);
 const error = computed(() => orderStore.error);
 
-function formatDate(d: DateTime) {
-  return dateTimeToDate(d).toLocaleDateString("en-US", {
+function formatDate(d: DateTime | null | undefined) {
+  if (!d) return "";
+  const date = dateTimeToDate(d);
+  if (isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",

@@ -9,7 +9,7 @@ Both `golem` and `golem-cli` can be used — all commands below work with either
 
 ## Overview
 
-Every `golem deploy` creates a new **deployment revision** — an immutable snapshot of the environment's components and HTTP API deployments. Rollback lets you revert the environment to a previous revision, restoring the exact component versions and API configuration that were active at that point.
+A `golem deploy` that applies deployment changes creates a new **deployment revision** — an immutable snapshot of the environment's components and HTTP API deployments. An unchanged deploy creates no revision. Rollback lets you revert the environment to a previous revision, restoring the exact component versions and API configuration that were active at that point.
 
 Rollback does **not** rebuild or re-upload components — it re-activates a previously deployed revision on the server side.
 
@@ -35,10 +35,10 @@ Looks up the deployment whose version label matches `<VERSION_STRING>` and rolls
 
 1. **Prepare** — the CLI fetches the target revision's deployment summary from the server and diffs it against the current deployment.
 2. **Diff** — a unified diff is displayed showing exactly which components, component versions, environment variables, and HTTP API deployments will change.
-3. **Confirm** — unless `--yes` is passed, the CLI prompts for confirmation before proceeding.
+3. **Confirm** — the CLI prompts before proceeding unless `--yes` is passed or the selected manifest environment sets `cli.autoConfirm: true`.
 4. **Apply** — the CLI sends a `DeploymentRollback` request to the server containing the current revision and the target revision. The server atomically switches the environment to the target state.
 
-If the target revision is identical to the current deployment (same deployment hash), the CLI reports "up to date" and takes no action.
+If the target revision is identical to the current deployment (same deployment hash), the CLI reports "up to date" and sends no rollback request. Unless `--plan` is set, post-deploy actions still run, including actions selected by environment defaults. In particular, `--reset` can delete agents and `--redeploy-agents` can delete and recreate them even when there is no deployment diff.
 
 ## Combining Rollback with Post-Deploy Actions
 
@@ -48,7 +48,9 @@ Rollback supports the same post-deploy flags as a normal deploy:
 |------|-------------|
 | `--update-agents <MODE>` | Update existing agents to the rolled-back component version (`auto` or `manual`) |
 | `--redeploy-agents` | Delete and recreate existing agents using the rolled-back version |
-| `--reset` | Delete agents and the environment, then deploy |
+| `--reset` | Roll back, then delete existing agents of the components in the target deployment; their state is lost, and the environment is retained |
+
+`--reset` does not clear guest KV buckets, domains, HTTP and MCP deployments, secrets, retry policies, plugins, or component revision history. Application KV cleanup is separate. The rollback still restores the target deployment's component versions and API configuration. Agents are created again on invocation rather than recreated by the command.
 
 ### Examples
 
@@ -67,7 +69,7 @@ golem deploy --version "v1.2.0" --redeploy-agents --yes
 ## Planning a Rollback (Dry Run)
 
 ```shell
-golem deploy --revision 3 --plan
+golem deploy --yes --revision 3 --plan
 ```
 
 Shows the diff of what would change without applying anything. Useful for inspecting the impact before committing.
@@ -79,6 +81,11 @@ If you do not know which revision to target, deploy with a non-existent revision
 ## Constraints
 
 - `--revision` and `--version` conflict with each other — use one or the other.
-- `--revision` and `--version` conflict with `--force-build`, `--stage`, and `--approve-staging-steps` — rollback does not trigger a build.
+- `--revision` and `--version` conflict with `--force-build` — rollback does not trigger a build.
 - The environment must already have at least one deployment (a current deployment must exist) before a rollback can be performed.
 - Rollback is an environment-level operation — it affects all components in the environment, not individual components.
+
+## Related Skills
+
+- Load `golem-deployment-version` for how the version labels used by `--version` are assigned to each deployment.
+- Load `golem-deploy` for creating deployments.
