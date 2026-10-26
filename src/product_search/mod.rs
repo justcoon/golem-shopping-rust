@@ -1,11 +1,9 @@
 use crate::product::{Product, ProductAgentClient};
 use futures::future::join_all;
-use golem_rust::bindings::golem::api::host::{
-    AgentAllFilter, AgentAnyFilter, AgentNameFilter, AgentPropertyFilter, GetAgents,
-    StringFilterComparator, resolve_component_id,
+use golem_rust::{
+    AgentAllFilter, AgentAnyFilter, AgentNameFilter, AgentPropertyFilter, ComponentId, GetAgents,
+    StringFilterComparator, agent_definition, agent_implementation, endpoint, resolve_component_id,
 };
-use golem_rust::golem_wasm::ComponentId;
-use golem_rust::{agent_definition, agent_implementation, endpoint};
 use log::info;
 use regex::Regex;
 use std::collections::HashSet;
@@ -156,7 +154,7 @@ async fn get_products(
     Ok(result)
 }
 
-#[agent_definition(mode = "ephemeral", mount = "/v1/product/search")]
+#[agent_definition(ephemeral, mount = "/v1/product/search")]
 trait ProductSearchAgent {
     fn new() -> Self;
 
@@ -176,7 +174,7 @@ impl ProductSearchAgent for ProductSearchAgentImpl {
     }
 
     async fn search(&self, query: String) -> Result<Vec<Product>, String> {
-        if let Some(component_id) = self.component_id {
+        if let Some(component_id) = self.component_id.clone() {
             info!("searching for products - query: {}", query);
 
             let mut values: Vec<Product> = Vec::new();
@@ -188,7 +186,7 @@ impl ProductSearchAgent for ProductSearchAgentImpl {
 
             let mut processed_agent_ids: HashSet<String> = HashSet::new();
 
-            while let Some(agents) = get_agents.get_next() {
+            while let Some(agents) = get_agents.get_next().map_err(|e| e.to_string())? {
                 let agent_ids = agents
                     .iter()
                     .filter_map(|a| get_product_agent_id(a.agent_id.agent_id.as_str()))

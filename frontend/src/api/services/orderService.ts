@@ -73,6 +73,19 @@ export const updateOrderEmail = async (
   }
 };
 
+const sanitizeAddress = (address: Address): Address => {
+  const sanitized: Address = {
+    street: address.street,
+    city: address.city,
+    state_or_region: address.state_or_region,
+    country: address.country,
+    postal_code: address.postal_code,
+  };
+  if (address.name) sanitized.name = address.name;
+  if (address.phone_number) sanitized.phone_number = address.phone_number;
+  return sanitized;
+};
+
 export const updateOrderBillingAddress = async (
   orderId: string,
   address: Address,
@@ -80,7 +93,7 @@ export const updateOrderBillingAddress = async (
   try {
     const response = await apiClient.put(
       `/v1/order/${orderId}/billing-address`,
-      address,
+      sanitizeAddress(address),
     );
     return response.data;
   } catch (error) {
@@ -99,7 +112,7 @@ export const updateOrderShippingAddress = async (
   try {
     const response = await apiClient.put(
       `/v1/order/${orderId}/shipping-address`,
-      address,
+      sanitizeAddress(address),
     );
     return response.data;
   } catch (error) {

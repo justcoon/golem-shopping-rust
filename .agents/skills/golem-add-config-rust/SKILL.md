@@ -29,7 +29,7 @@ pub struct NestedConfig {
 }
 ```
 
-- All fields must implement the `ConfigSchema` trait.
+- Nested config structs must implement `ConfigSchema`; ordinary primitive fields do not need that trait.
 - Nested structs require the `#[config_schema(nested)]` annotation.
 - `Option<T>` fields are optional and default to `None` if not provided.
 
@@ -58,14 +58,14 @@ impl MyAgent for MyAgentImpl {
     }
 
     fn get_foo(&self) -> i32 {
-        self.config.get().foo
+        self.config.get().expect("config").foo
     }
 }
 ```
 
 - The `#[agent_config]` annotation is **required** on the `Config<T>` parameter.
 - Do not call `Config::new()` yourself in user code. `Config<T>` metadata is discovered from the `#[agent_config]` constructor parameter, and manual construction bypasses that registration path.
-- Config is loaded lazily when `.get()` is called.
+- Config is loaded lazily when `.get()` is called; it returns a `Result`, failing when a value is missing or does not match the schema.
 
 ## 3. Set Config in `golem.yaml`
 
@@ -82,16 +82,16 @@ agents:
         b: [1, 2, 3]
 ```
 
-Config values in `golem.yaml` use **camelCase** keys — Rust snake_case fields are converted automatically.
+Regular config keys in `golem.yaml` retain Rust field names, including `snake_case`. Secret paths have separate canonicalization rules.
 
 ## 4. Pass Config via CLI
 
 Override or supply config when creating an agent instance:
 
 ```shell
-golem agent new my-ns:my-component/my-agent-1 \
+golem agent new 'MyAgent("agent-1")' \
   --config foo=42 \
-  --config bar=hello \
+  --config 'bar="hello"' \
   --config nested.a=true \
   --config nested.b="[1, 2, 3]"
 ```
@@ -103,14 +103,18 @@ Dot-separated keys address nested struct fields.
 When calling an agent via RPC, use the generated `*ConfigRpc` type and `get_with_config` to override config at call time:
 
 ```rust
-let agent = MyAgentConfigRpc::get_with_config(name, config_overrides);
+let agent = MyAgentClient::get_with_config(name, MyAgentConfigRpc {
+    foo: Some(42),
+    ..Default::default()
+});
 ```
 
 ## Config Cascade
 
 Config values follow the same cascade as environment variables:
 
-**componentTemplates → components → agents → presets**
+**componentTemplates → components → agents**, with presets resolved within each template,
+component, and agent layer, not as one final global layer.
 
 - Values in `golem.yaml` act as defaults.
 - Values passed via `golem agent new --config` or RPC `get_with_config` override those defaults.

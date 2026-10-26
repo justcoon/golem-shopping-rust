@@ -104,8 +104,10 @@ export const useCartStore = defineStore("cart", () => {
     try {
       isLoading.value = true;
       error.value = null;
-      const updatedCart = await updateBillingAddressApi(userId, address);
-      cart.value = updatedCart;
+      await updateBillingAddressApi(userId, address);
+      if (cart.value) {
+        cart.value["billing_address"] = address;
+      }
     } catch (err) {
       error.value = err as Error;
       console.error("Error updating billing address:", err);
@@ -119,12 +121,16 @@ export const useCartStore = defineStore("cart", () => {
     try {
       isLoading.value = true;
       error.value = null;
-      const updatedCart = await updateShippingAddressApi(userId, address);
-      cart.value = updatedCart;
+      await updateShippingAddressApi(userId, address);
+      if (cart.value) {
+        cart.value["shipping_address"] = address;
+      }
     } catch (err) {
       error.value = err as Error;
       console.error("Error updating shipping address:", err);
       throw err;
+    } finally {
+      isLoading.value = false;
     }
   }
 

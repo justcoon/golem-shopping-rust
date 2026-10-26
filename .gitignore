@@ -7,3 +7,5 @@
 .idea
 *.iml
 package-lock.json
+**/dist
+**/.npm-cache

@@ -23,7 +23,7 @@ Component/Agent Presets (config overrides)
 
 When you run `golem deploy`, the CLI:
 
-1. Selects an **environment** from the manifest (via `--local`, `--cloud`, `-e <name>`, or the `default: true` environment)
+1. Selects an **environment** from the manifest (via `--local`, `--cloud`, `-E <name>`, or the `default: true` environment)
 2. Resolves **connection settings** — either from the environment's `server:` field, or falls back to the active CLI **profile**
 3. Activates **presets** listed in the environment's `componentPresets:` field, merging their overrides into the resolved configuration
 
@@ -42,7 +42,9 @@ Profiles are global CLI configuration stored in `~/.golem/config.json`. They def
 
 ```shell
 golem profile new                          # Interactive setup
-golem profile new my-staging --url https://staging.example.com --static-token "..."
+golem profile new my-staging --url https://staging.example.com                 # OAuth2 (default)
+golem profile new my-staging --url https://staging.example.com --auth static   # static token (prompted, masked)
+golem profile new my-staging --url https://staging.example.com --static-token "..."  # static token inline
 golem profile list                         # List all profiles
 golem profile switch my-staging            # Set active profile
 golem profile get                          # Show active profile
@@ -51,10 +53,15 @@ golem profile delete my-staging            # Delete a profile
 golem profile config my-staging set-format json  # Set default output format
 ```
 
+Authentication mode is explicit via `--auth`: `oauth2` (default — interactive
+browser login on first use) or `static` (a pre-issued token). Passing
+`--static-token` implies `--auth static`; `--auth static` without a token
+prompts for one (masked). A token cannot be combined with `--auth oauth2`.
+
 ### Global flags
 
 ```shell
-golem --profile my-staging deploy          # Use a specific profile for this command
+golem -E staging deploy                    # Use a named manifest environment for this command
 golem -L deploy                            # Shortcut: use "local" environment/profile
 golem -C deploy                            # Shortcut: use "cloud" environment/profile
 ```
@@ -67,18 +74,20 @@ golem -C deploy                            # Shortcut: use "cloud" environment/p
 | `custom_worker_url` | Golem Worker service URL (defaults to `custom_url`) |
 | `allow_insecure` | Accept invalid TLS certificates |
 | `auth` | Authentication — `staticToken` or OAuth2 |
-| `config.default_format` | Default CLI output format (`text` or `json`) |
+| `config.default_format` | Default CLI output format (`text`, `json`, `pretty-json`, `yaml`, `pretty-yaml`, or `toon`) |
 
 ## App Environments
 
 Environments are defined in `golem.yaml` and represent named deployment targets. They specify which server to deploy to, which presets to activate, and optional CLI/deployment behavior.
+
+For deployment `subdomain` fields, the environment's `server` controls expansion. A built-in local server resolves HTTP API subdomains to `*.localhost:9006` and MCP subdomains to `*.localhost:9007` by default; a built-in cloud server resolves them to `*.apps.golem.cloud` and `*.mcps.golem.cloud`. The environment name itself does not control the expansion.
 
 ### Basic example
 
 ```yaml
 environments:
   local:
-    default: true                    # Selected when no -e flag is given
+    default: true                    # Selected when no -E flag is given
     server: local                    # Use built-in local server
     componentPresets: local          # Activate the "local" preset
   cloud:
@@ -112,10 +121,11 @@ environments:
 | `componentPresets` | string or string[] | Preset name(s) to activate |
 | `cli` | object | CLI behavior overrides (see below) |
 | `deployment` | object | Deployment option overrides (see below) |
+| `version` | object or string | Per-environment version override — see `golem-deployment-version` |
 
 ### Server options
 
-- `local` — built-in local server (`http://localhost:9881`)
+- `local` — built-in local server (`http://localhost:9881` by default, configurable through manifest `localServer.routerAddr` and `localServer.routerPort`)
 - `cloud` — Golem Cloud (`https://release.api.golem.cloud`) with OAuth2
 - Custom object with `url`, optional `workerUrl`, optional `allowInsecure`, and `auth` (`oauth2: true` or `staticToken: "..."`)
 
@@ -128,9 +138,12 @@ environments:
     cli:
       format: json                   # Default output format
       autoConfirm: true              # Auto-answer "yes" to prompts
-      redeployAgents: true           # Equivalent to --reset on deploy
-      reset: true                    # Reset all state on deploy
+      redeployAgents: true           # Delete/recreate agents; agent state is lost
 ```
+
+`reset: true` is equivalent to `--reset`: it deletes existing agents for the deployed components
+after deployment, losing their state, and enables incompatibility-replacement fallbacks. The
+environment itself is retained. It takes precedence over `redeployAgents` when both are configured.
 
 ### Deployment options (`deployment:`)
 
@@ -140,7 +153,7 @@ environments:
     server: local
     deployment:
       compatibilityCheck: false      # Skip component compatibility checks
-      versionCheck: false            # Skip version mismatch checks
+      versionCheck: false            # Enforce unique deploy versions; false = allow re-use (default)
       securityOverrides: true        # Allow security config overrides
 ```
 
@@ -150,8 +163,8 @@ environments:
 |------|--------|
 | `-L` / `--local` | Select the `local` environment (or `local` profile if no manifest) |
 | `-C` / `--cloud` | Select the `cloud` environment (or `cloud` profile if no manifest) |
-| `-e <name>` | Select a named environment from the manifest |
-| *(none)* | Use the `default: true` environment, or fall back to active profile |
+| `-E <name>` | Select a named environment from the manifest |
+| *(none)* | Use the explicitly default environment, otherwise the first declared manifest environment |
 
 ### Managing environments
 
@@ -162,29 +175,31 @@ golem environment sync-deployment-options  # Sync deployment options to the serv
 
 ### Environment-scoped manifest sections
 
+Load `golem-edit-manifest` for the full schema and editing rules of these manifest sections.
+
 Several top-level manifest sections are keyed by environment name:
 
 ```yaml
 httpApi:
   deployments:
     local:                           # Only deployed to "local" environment
-      - domain: localhost:9006
+      - subdomain: my-app  # resolves to my-app.localhost:9006 by default
         agents:
           MyAgent: {}
-    prod:
-      - domain: api.example.com
+    cloud:
+      - subdomain: my-app  # resolves to my-app.apps.golem.cloud
         agents:
           MyAgent: {}
 
 mcp:
   deployments:
     local:
-      - domain: localhost:9006
+      - subdomain: my-mcp  # resolves to my-mcp.localhost:9007 by default
 
 secretDefaults:
   local:
     apiKey: "test-key"
-  prod:
+  cloud:
     apiKey: "{{ PROD_API_KEY }}"
 
 retryPolicyDefaults:
@@ -215,6 +230,8 @@ Presets are named configuration overrides defined within components, agents, or 
 
 ### Defining presets
 
+Load `golem-edit-manifest` when adding or modifying preset sections in `golem.yaml` to ensure correct manifest structure.
+
 Presets can be defined at the **component template**, **component**, or **agent** level:
 
 ```yaml
@@ -224,7 +241,7 @@ componentTemplates:
       RUST_LOG: info
     presets:
       local:
-        default: true                # Used when no preset is explicitly selected
+        default: true                # Fallback when no selected preset name matches
         env:
           GOLEM_ENV: local
       cloud:
@@ -238,10 +255,10 @@ components:
     presets:
       local:
         build:
-          - command: cargo build --target wasm32-wasip1
+          - command: cargo build --target wasm32-wasip2
       release:
         build:
-          - command: cargo build --target wasm32-wasip1 --release
+          - command: cargo build --target wasm32-wasip2 --release
 
 agents:
   MyAgent:
@@ -279,23 +296,55 @@ Presets **cannot** override structural fields like `dir` or `templates`.
 2. **Via CLI flag**: The `-P` / `--preset` flag overrides environment preset selection:
 
    ```shell
-   golem build -P release
-   golem deploy -P debug,verbose
+   golem build --yes -P release
+   golem deploy --yes -P debug,verbose
    ```
 
-3. **Default preset**: One preset per component/agent/template can be marked `default: true` — it is used when no preset is explicitly selected by environment or CLI flag.
+3. **Default preset**: A component, agent, or template with custom presets always applies at least one custom preset. If no preset name selected by the environment or CLI matches that component, agent, or template, it applies its default custom preset. One custom preset can be marked `default: true`. If none is marked, the first custom preset in declaration order is the default, even if it is the only custom preset. This fallback is resolved independently for each component, agent, and template.
+
+Presets named `app-env:<environment-name>` are environment presets, not custom presets. They apply only for the matching environment and do not participate in default selection.
+
+### Keeping presets opt-in
+
+A single custom preset is not opt-in: it becomes the default and applies even without `-P` or `componentPresets`. To keep an override opt-in, add an empty custom preset marked `default: true`:
+
+```yaml
+components:
+  my-app:service:
+    presets:
+      standard:
+        default: true
+      debug:
+        env:
+          RUST_LOG: debug
+```
+
+The `standard` preset adds no overrides. The `debug` preset applies only when selected by `componentPresets: debug` in the environment or by `-P debug` on the CLI:
+
+```shell
+# Empty default if no matching environment selection
+golem deploy --yes
+# Enables the debug overrides
+golem deploy --yes -P debug
+```
+
+Use the same empty-default pattern under a template's or agent's `presets` to keep its other presets opt-in. It also works for a preset that installs an optional plugin, such as OTLP: put the plugin in the opt-in preset and leave the default preset empty.
 
 > **Naming guideline**: Avoid using the same name for an environment and a preset (e.g. both called `local`). Although they are separate concepts, sharing names makes the manifest harder to read and reason about. Prefer distinct preset names such as `dev`, `debug`, `release`, or `optimized` that describe what the preset *does*, rather than mirroring the environment name.
 
 ### Cascade with presets
 
-Presets are the most specific layer in the cascade:
+Presets apply within their owning layer in the cascade:
 
 ```
-componentTemplates → components → agents → presets
+componentTemplates (including their selected presets)
+  → components (including their selected presets)
+  → agents (including their selected presets)
 ```
 
-Preset properties merge with or override the base properties using the same merge modes (`envMergeMode`, `pluginsMergeMode`, etc.).
+Golem resolves the base component, including its template and component presets, before it applies
+agent overrides and agent presets. Preset properties merge with or override the base properties of
+their layer using the same merge modes (`envMergeMode`, `pluginsMergeMode`, etc.).
 
 ## Per-Agent Configuration
 
@@ -389,5 +438,6 @@ golem -L component list                    # Use built-in "local" profile
 
 - Load `golem-edit-manifest` for the complete manifest field reference
 - Load `golem-deploy` for deployment commands and flags
+- Load `golem-deployment-version` for per-environment `version:` overrides and the `versionCheck` uniqueness policy
 - Load `golem-add-env-vars` for environment variable configuration details
 - Load `golem-add-initial-files` for initial filesystem configuration

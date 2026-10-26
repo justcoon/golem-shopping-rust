@@ -7,9 +7,15 @@ description: "Configuring MCP (Model Context Protocol) server deployments in gol
 
 ## Overview
 
-Any Golem agent can be automatically exposed as an **MCP (Model Context Protocol) server** without writing any extra code. MCP is enabled by adding an `mcp` section to `golem.yaml` — the same way HTTP API deployments are configured under `httpApi`.
+Golem agents with MCP-compatible method schemas can be automatically exposed as an **MCP (Model Context Protocol) server** without writing any extra code. MCP is enabled by adding an `mcp` section to `golem.yaml` — the same way HTTP API deployments are configured under `httpApi`.
 
 The MCP server uses the **Streamable HTTP** transport. Once deployed, any MCP-compatible client (Claude Desktop, MCP Inspector, Cursor, custom clients) can connect to the server and interact with your agents through MCP tools, resources, and prompts.
+
+Streamable HTTP describes the MCP connection; it does not make agent `stream<T>` values
+MCP-compatible. A method is not exposed when its input or output schema recursively contains an
+agent stream, including a stream nested in a record, variant, collection, or another stream. Add a
+bounded stream-free adapter method if MCP clients need the same capability. Do not collect an
+unbounded stream solely to bypass this limitation.
 
 ## Adding an MCP Deployment
 
@@ -19,7 +25,7 @@ Add an `mcp` section to the root `golem.yaml`:
 mcp:
   deployments:
     local:
-      - domain: my-app.localhost:9007
+      - subdomain: my-app  # resolves to my-app.localhost:9007 by default
         agents:
           CounterAgent: {}
           TaskAgent: {}
@@ -30,8 +36,15 @@ mcp:
 - `mcp.deployments` is a map keyed by **environment name** (e.g., `local`, `cloud`, `staging`)
 - Each environment contains a list of deployment objects
 - Each deployment has:
-  - `domain`: the (sub)domain to bind to
+  - `subdomain`: a single DNS label (lowercase letters, digits, and hyphens only — no dots, port, or URL scheme) resolved through the target environment server. Local MCP deployments resolve to `<subdomain>.localhost:9007` by default, or `<subdomain>.localhost:<mcpPort>` when `localServer.mcpPort` is set to a stable nonzero port. Cloud MCP deployments resolve to `<subdomain>.mcps.golem.cloud`.
+  - `domain`: a full domain such as `mcp.example.com` for custom registered domains or custom server environments.
   - `agents`: a map of agent type names (PascalCase) to their deployment options
+
+Define exactly one of `subdomain` or `domain` on each deployment. Prefer `subdomain` for built-in `server: local` and `server: cloud` environments. Use `domain` when you need a full custom domain. `subdomain` cannot be used with custom server environments — those must use `domain`.
+
+Do not use `localServer.mcpPort: 0` in the manifest. Port `0` is only allowed when passed directly as `--mcp-port 0` to `golem server run`; manifest deployment domains require stable nonzero ports. The local server routes requests by matching their `Host` header against the expanded `<subdomain>.localhost:<port>`, so the running server must bind the same port the manifest expands to: `golem server run` warns when its `--mcp-port` differs from the manifest value, and such deployments are not reachable until the two match.
+
+`<subdomain>.localhost` resolves only on the machine running the local server. The MCP listener defaults to `worker_service.bind_address = "127.0.0.1"`, independently of `localServer.routerAddr`. External access requires a reachable `domain`, an appropriate worker-service bind address, and network access rules; DNS alone is insufficient. Replace **all well-known default secrets** before exposing MCP, HTTP, or the main API externally. The server rejects non-loopback listener addresses while any default secret remains. Changing the worker-service bind address also exposes its unauthenticated internal gRPC listener: restrict that listener with a firewall and keep other internal services on loopback. See `golem-local-dev-server` for configuration details.
 
 ### Local Development
 
@@ -41,7 +54,7 @@ For local development, the MCP server listens on port **9007** by default (separ
 mcp:
   deployments:
     local:
-      - domain: my-app.localhost:9007
+      - subdomain: my-app  # resolves to my-app.localhost:9007 by default
         agents:
           MyAgent: {}
 ```
@@ -54,17 +67,17 @@ http://my-app.localhost:9007/mcp
 
 ### Cloud Deployment
 
-For Golem Cloud, configure the `cloud` environment with a registered domain:
+For Golem Cloud's built-in server, configure the `cloud` environment and use `subdomain`:
 
 ```yaml
 mcp:
   deployments:
     local:
-      - domain: my-app.localhost:9007
+      - subdomain: my-app  # resolves to my-app.localhost:9007 by default
         agents:
           MyAgent: {}
     cloud:
-      - domain: my-app.example.com
+      - subdomain: my-app  # resolves to my-app.mcps.golem.cloud
         agents:
           MyAgent:
             securityScheme: my-oauth
@@ -80,6 +93,18 @@ Deploy to cloud with:
 
 ```shell
 golem deploy --yes --cloud
+```
+
+For custom DNS or custom server environments, use `domain` with a full domain:
+
+```yaml
+mcp:
+  deployments:
+    prod:
+      - domain: mcp.example.com
+        agents:
+          MyAgent:
+            securityScheme: my-oauth
 ```
 
 ## Agent Options
@@ -139,7 +164,7 @@ After creating a security scheme, reference it by name:
 mcp:
   deployments:
     local:
-      - domain: my-app.localhost:9007
+      - subdomain: my-app  # resolves to my-app.localhost:9007 by default
         agents:
           SecureAgent:
             securityScheme: my-oidc
@@ -153,9 +178,9 @@ Agent methods are automatically mapped to MCP entities based on these rules:
 
 | Agent Type | Method | MCP Entity |
 |---|---|---|
-| Singleton | No parameters | Resource |
-| Non-singleton | No parameters | Resource template |
-| Any | Has parameters | Tool |
+| Singleton | Read-only, no user-supplied parameters | Resource |
+| Non-singleton | Read-only, no user-supplied parameters | Resource template |
+| Any | Has user-supplied parameters, or is not marked read-only | Tool |
 
 ### Tool and Resource Naming
 
@@ -171,7 +196,7 @@ Constructor parameters (which identify the agent instance) are automatically inc
 
 ### Agent and Method Metadata
 
-Add `description` and `prompt` annotations to improve MCP discoverability:
+Add `description` and prompt metadata to improve MCP discoverability:
 
 **Rust:**
 ```rust
@@ -182,9 +207,12 @@ fn increment_by(&mut self, n: u32) -> u32;
 
 **TypeScript:**
 ```typescript
-@description("Increments the counter by n")
-@prompt("Increment by a given number")
-async incrementBy(n: number): Promise<number> { ... }
+incrementBy: method({
+  input: { n: z.number() },
+  returns: z.number(),
+  description: "Increments the counter by n",
+  promptHint: "Increment by a given number",
+}),
 ```
 
 **Scala:**
@@ -194,7 +222,7 @@ async incrementBy(n: number): Promise<number> { ... }
 def incrementBy(n: Int): Future[Int]
 ```
 
-Both annotations are optional and are included in the MCP metadata sent to clients.
+Both are optional and are included in the MCP metadata sent to clients.
 
 ## Special Data Types for MCP
 
@@ -240,11 +268,11 @@ Configure different domains and security settings per environment:
 mcp:
   deployments:
     local:
-      - domain: my-app.localhost:9007
+      - subdomain: my-app  # resolves to my-app.localhost:9007 by default
         agents:
           MyAgent: {}
     cloud:
-      - domain: mcp.myapp.com
+      - subdomain: my-app  # resolves to my-app.mcps.golem.cloud
         agents:
           MyAgent:
             securityScheme: prod-google-oidc
@@ -283,11 +311,11 @@ Then connect to `http://my-app.localhost:9007/mcp` using the Streamable HTTP tra
 mcp:
   deployments:
     local:
-      - domain: counter-app.localhost:9007
+      - subdomain: counter-app  # resolves to counter-app.localhost:9007 by default
         agents:
           CounterAgent: {}
     cloud:
-      - domain: mcp.counter-app.com
+      - subdomain: counter-app  # resolves to counter-app.mcps.golem.cloud
         agents:
           CounterAgent:
             securityScheme: google-oidc
@@ -305,6 +333,10 @@ environments:
 - The MCP server listens on port **9007** by default for local development (separate from the HTTP API gateway port 9006)
 - The MCP endpoint path is always `/mcp` (e.g., `http://my-app.localhost:9007/mcp`)
 - Security schemes must be created via `golem api security-scheme create` before they can be referenced
-- The domain must be unique per environment
+- The resolved domain must be unique per environment
 - After changing `golem.yaml`, run `golem deploy --yes` to apply changes
 - The OAuth callback path for MCP security schemes is `/mcp/oauth/callback`
+
+## Related Skills
+
+- Load `golem-generating-tool-clients` to import tools from another MCP server and call them through generated clients; `mcp.imports` is separate from the exports configured here

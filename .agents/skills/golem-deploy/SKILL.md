@@ -28,11 +28,14 @@ Existing running agents are **not affected** by default — they continue runnin
 
 | Option | Description |
 |--------|-------------|
-| `--plan` | Only plan deployment, apply no changes |
+| `--plan` | Plan without applying deployment changes or post-deploy actions; builds, local fixes, and creation of a missing application or environment can still run |
+| `--full-diff` | Show the full deployment and environment setup diff instead of only changed entries |
+| `--version <VERSION>` | Roll the environment back to the deployment with this version label (see `golem-rollback`) |
+| `--revision <REVISION>` | Roll the environment back to the deployment with this revision (see `golem-rollback`) |
 | `--force-build` | Skip modification-time based up-to-date checks |
 | `-u, --update-agents <MODE>` | Update existing agents: `automatic` or `manual` |
 | `--redeploy-agents` | Delete and recreate existing agents |
-| `-r, --reset` | Delete agents and the environment, then deploy from scratch |
+| `-r, --reset` | Deploy, then delete existing agents of the deployed components; their state is lost, and the environment is retained |
 | `-P, --preset <PRESET>` | Select custom component presets |
 | `-Y, --yes` | Non-interactive mode — **always use this flag** |
 
@@ -61,7 +64,9 @@ Builds, uploads, and activates all components. Agents are created on first invoc
 golem deploy --yes --reset
 ```
 
-Deletes all previously created agents and redeploys everything. Use this when iterating on code changes — without it, existing agent instances keep running with the old component version.
+Deploys, then deletes existing agents of the deployed components, even if the deployment is already up to date. Their state is lost. Agents are created again on invocation rather than recreated by the command. Use this when iterating on code changes — without it, existing agent instances keep running with the old component version.
+
+`--reset` retains the environment. It does not clear domains, HTTP and MCP deployments, secrets, retry policies, plugins, or component revision history. The deployment still reconciles the manifest and can update these resources. Reset also permits incompatible component configuration changes and replacement of incompatible agent secrets; it does not create a new environment.
 
 ### Update running agents in-place
 
@@ -69,7 +74,7 @@ Deletes all previously created agents and redeploys everything. Use this when it
 golem deploy --yes --update-agents automatic
 ```
 
-Updates existing agents to the new component version automatically. Agents pick up the new code on their next invocation.
+Updates existing agents to the new component version automatically. Suspended agents are woken up, and the command waits until the updates complete.
 
 ### Preview changes without applying
 
@@ -77,10 +82,17 @@ Updates existing agents to the new component version automatically. Agents pick 
 golem deploy --yes --plan
 ```
 
-Shows what would be deployed without making any changes.
+Shows what would be deployed without applying deployment changes or post-deploy actions. This is not read-only: builds and local dependency/configuration fixes can still run, and `--yes` accepts those fixes. Target resolution runs before the plan guard and can create a missing application or environment on the server. Account for these setup writes before previewing against a new target.
 
 ## Common Deployment Errors
 
 - **Build failure**: fix the build errors reported in the output — `golem deploy` runs the build automatically.
 - **Server not reachable**: ensure the Golem server is running and accessible at the configured address.
 - **Port conflict**: if deploying locally, make sure no other process is using the Golem server ports.
+- **Version-related errors** (`tagPattern` required, working tree dirty, version already exists): see `golem-deployment-version`.
+
+## Related Skills
+
+- Load `golem-deployment-version` for the logical version attached to each deployment (git/static/env source, `versionCheck`).
+- Load `golem-rollback` for reverting to a previous deployment.
+- Load `golem-profiles-and-environments` for selecting deployment targets.

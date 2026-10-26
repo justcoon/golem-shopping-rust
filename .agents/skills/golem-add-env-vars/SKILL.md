@@ -1,6 +1,6 @@
 ---
 name: golem-add-env-vars
-description: "Defining environment variables for Golem agents. Use when configuring env vars in golem.yaml at the component template, component, agent type, or preset level, passing env vars to individual agent instances via CLI, or using template substitution and merge modes."
+description: "Defining environment variables for Golem agents in `golem.yaml` (`env`, `envDefaults`, `secretDefaults`) or via CLI. Use when adding, setting, or overriding env vars on a component, agent, template, preset, or environment, or when wiring template substitution and merge modes."
 ---
 
 # Defining Environment Variables for Golem Agents
@@ -10,10 +10,14 @@ Environment variables in Golem can be set at multiple levels in the application 
 ## Cascade Hierarchy (Most General → Most Specific)
 
 ```
-componentTemplates → components → agents → presets
+componentTemplates (including their selected presets)
+  → components (including their selected presets)
+  → agents (including their selected presets)
 ```
 
 Each level can define `env` (a map of key-value pairs) and `envMergeMode` (how to combine with the parent level). More specific levels are applied on top of less specific ones.
+
+Presets apply within their owning layer, not after all other layers. Golem resolves the base component, including its template and component presets, before applying agent overrides and agent presets.
 
 ## 1. Component Template Level
 
@@ -67,7 +71,7 @@ components:
       LOG_LEVEL: info
     presets:
       debug:
-        default: {}
+        default: true
         env:
           LOG_LEVEL: debug
           DEBUG_MODE: "true"
@@ -85,7 +89,7 @@ agents:
       CACHE_TTL: "300"
     presets:
       debug:
-        default: {}
+        default: true
         env:
           CACHE_TTL: "60"
 ```
@@ -106,7 +110,7 @@ components:
       DATABASE_URL: postgresql://db:5432/app
     presets:
       debug:
-        default: {}
+        default: true
         env:
           LOG_LEVEL: debug
 
@@ -117,7 +121,7 @@ agents:
       API_KEY: "{{ MY_API_KEY }}"
     presets:
       debug:
-        default: {}
+        default: true
         env:
           CACHE_TTL: "60"
 ```
@@ -185,7 +189,13 @@ The same `{{ VAR }}` syntax also works in:
 
 ## Reading Environment Variables in Agent Code
 
-**Rust and TypeScript** agents use the standard APIs to read environment variables (`std::env::var` in Rust, `process.env` in TypeScript).
+**Rust, TypeScript, and Go** agents use the standard APIs to read environment variables (`std::env::var` in Rust, `process.env` in TypeScript, `os.Getenv` / `os.Environ` in Go). Go needs no special wiring — the std-library `os` package works inside the WASM runtime because `componentize-go`'s `wasi_snapshot_preview1` adapter maps Go's environ calls onto `wasi:cli/environment`. Example:
+
+```go
+import "os"
+
+appMode := os.Getenv("APP_MODE") // "" if unset
+```
 
 **Scala** agents must use `golem.wasi.Environment.getEnvironment()` which returns a `Map[String, String]` of all environment variables via the WASI `wasi:cli/environment@0.2.3` interface. Standard Scala `sys.env` does **not** work inside the WASM runtime. Example:
 
@@ -201,7 +211,7 @@ val appMode = env.getOrElse("APP_MODE", "default")
 When creating an agent instance directly (outside `golem deploy`), you can pass environment variables with the `--env` / `-e` flag:
 
 ```shell
-golem agent new my-ns:my-component/my-agent-1 \
+golem agent new 'MyAgent("my-agent-1")' \
   --env API_KEY=secret123 \
   --env LOG_LEVEL=debug
 ```

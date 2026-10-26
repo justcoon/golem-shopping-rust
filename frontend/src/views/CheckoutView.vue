@@ -15,9 +15,10 @@ const cart = computed(() => cartStore.cart);
 const isSubmitting = ref(false);
 const sameAsBilling = ref(true);
 
+const email = ref("");
+
 // Shipping address
-const shipping = ref<Address & { email: string }>({
-  email: "",
+const shipping = ref<Address>({
   street: "",
   city: "",
   state_or_region: "",
@@ -57,6 +58,10 @@ watch(sameAsBilling, (isSame) => {
 onMounted(() => {
   if (!cart.value) cartStore.fetchCart(currentUserId);
 
+  if (cart.value?.email) {
+    email.value = cart.value.email;
+  }
+
   // If we have a saved cart with addresses, populate the form
   if (cart.value?.["shipping_address"]) {
     shipping.value = {...cart.value["shipping_address"]};
@@ -75,8 +80,8 @@ async function submitOrder() {
 
   try {
     // Update cart with email first
-    if (shipping.value.email) {
-      await cartStore.updateEmail(currentUserId, shipping.value.email);
+    if (email.value) {
+      await cartStore.updateEmail(currentUserId, email.value);
     }
 
     // Update cart with addresses
@@ -123,7 +128,7 @@ async function submitOrder() {
           <label for="shipping-email">Email Address</label>
           <input
               id="shipping-email"
-              v-model="shipping.email"
+              v-model="email"
               type="email"
               placeholder="your@email.com"
               required
