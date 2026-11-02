@@ -18,6 +18,7 @@ package "Golem Cloud" {
     [API Gateway] as gateway #F9E79F
     [Product Agent] as product #D5F5E3
     [Pricing Agent] as pricing #D6EAF8
+    [Inventory Agent] as inventory #D4EFDF
     [Cart Agent] as cart #FADBD8
     [Order Agent] as order #E8DAEF
     [Product Search Agent] as product_search #D1F2EB
@@ -29,6 +30,7 @@ user --> gateway : "HTTP Requests\n(REST API Calls)"
 
 gateway --> product : "RPC\nProduct API"
 gateway --> pricing : "RPC\nPricing API"
+gateway --> inventory : "RPC\nInventory API"
 gateway --> cart : "RPC\nCart API"
 gateway --> order : "RPC\nOrder API"
 gateway --> product_search : "RPC\nProduct Search API"
@@ -37,9 +39,11 @@ gateway --> assistant : "RPC\nAssistant API"
 ' Agent-to-agent communication
 cart --> product : "RPC\nGet product info"
 cart --> pricing : "RPC\nGet pricing info"
+cart --> inventory : "RPC\nCheck inventory"
 cart --> order : "RPC\nCreate order from cart"
 order --> product : "RPC\nGet product info"
 order --> pricing : "RPC\nGet pricing info"
+order --> inventory : "RPC\nReserve / adjust / release / fulfill inventory"
 product_search --> product : "RPC\nGet product info"
 
 ' Shopping Assistant relationships
@@ -52,6 +56,7 @@ note right of gateway
   - Routes REST API to agents
   • /v1/product/** → Product Agent
   • /v1/pricing/** → Pricing Agent
+  • /v1/inventory/** → Inventory Agent
   • /v1/cart/** → Cart Agent
   • /v1/order/** → Order Agent
   • /v1/assistant/** → Shopping Assistant Agent
@@ -69,6 +74,14 @@ note right of pricing
   <b>Pricing Agent</b>
   - Manages product pricing
   - Handles discounts/promotions
+  - State managed by Golem Cloud
+end note
+
+note right of inventory
+  <b>Inventory Agent</b>
+  - Manages product regional inventory
+  - Handles reservations per order
+  - Fulfills/releases stock on order transitions
   - State managed by Golem Cloud
 end note
 

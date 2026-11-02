@@ -1,4 +1,5 @@
-use crate::common::{Address, CURRENCY_DEFAULT, PRICING_REGION_DEFAULT};
+use crate::common::{Address, CURRENCY_DEFAULT, INVENTORY_REGION_DEFAULT, PRICING_REGION_DEFAULT};
+use crate::inventory::InventoryAgentClient;
 use crate::order::{CreateOrder, OrderAgentClient, OrderItem};
 use crate::pricing::{PricingAgentClient, PricingItem};
 use crate::product::{Product, ProductAgentClient};
@@ -215,10 +216,18 @@ pub struct EmptyEmailError {
 pub struct OrderCreateError {
     pub message: String,
 }
+#[derive(Schema, Clone, Serialize, Deserialize, Debug)]
+pub struct InsufficientStockError {
+    pub message: String,
+    pub product_id: String,
+    pub requested: u32,
+    pub available: u32,
+}
 #[derive(Schema, Clone)]
 pub enum AddItemError {
     ProductNotFound(ProductNotFoundError),
     PricingNotFound(PricingNotFoundError),
+    InsufficientStock(InsufficientStockError),
 }
 #[derive(Schema, Clone)]
 pub enum RemoveItemError {
@@ -237,6 +246,7 @@ pub enum UpdateEmailError {
 #[derive(Schema, Clone)]
 pub enum UpdateItemQuantityError {
     ItemNotFound(ItemNotFoundError),
+    InsufficientStock(InsufficientStockError),
 }
 #[derive(Schema, Clone)]
 pub enum CheckoutError {
@@ -246,6 +256,7 @@ pub enum CheckoutError {
     EmptyEmail(EmptyEmailError),
     BillingAddressNotSet(BillingAddressNotSetError),
     OrderCreate(OrderCreateError),
+    InsufficientStock(InsufficientStockError),
 }
 #[derive(Schema, Clone)]
 pub enum UpdateAddressError {
@@ -314,20 +325,32 @@ async fn create_order(order_id: String, cart: Cart) -> Result<String, CheckoutEr
 
     let order = cart.into();
 
-    OrderAgentClient::get(order_id.clone())
+    let result = OrderAgentClient::get(order_id.clone())
         .initialize_order(order)
-        .await
-        .map_err(|_| {
-            CheckoutError::OrderCreate(OrderCreateError {
-                message: "Failed to create order".to_string(),
-            })
-        })?;
+        .await;
 
-    Ok(order_id)
+    match result {
+        Ok(_) => Ok(order_id),
+        Err(e) => match e {
+            crate::order::InitOrderError::InsufficientInventory(err) => {
+                Err(CheckoutError::InsufficientStock(InsufficientStockError {
+                    message: err.message,
+                    product_id: err.product_id,
+                    requested: err.requested,
+                    available: err.available,
+                }))
+            }
+            crate::order::InitOrderError::ActionNotAllowed(_) => {
+                Err(CheckoutError::OrderCreate(OrderCreateError {
+                    message: "Failed to create order: action not allowed".to_string(),
+                }))
+            }
+        },
+    }
 }
 
 #[agent_definition(mount = "/v1/cart/{id}")]
-trait CartAgent {
+pub trait CartAgent {
     fn new(id: String) -> Self;
 
     #[endpoint(get = "/")]
@@ -363,7 +386,7 @@ trait CartAgent {
         phone_number: Option<String>,
     ) -> Result<CartUpdated, UpdateAddressError>;
 
-    fn update_item_quantity(
+    async fn update_item_quantity(
         &mut self,
         product_id: String,
         quantity: u32,
@@ -446,6 +469,32 @@ impl CartAgent for CartAgentImpl {
             "Adding item with product {} to the cart of user {}",
             product_id, state.user_id
         );
+
+        let current_qty = state
+            .items
+            .iter()
+            .find(|i| i.product_id == product_id)
+            .map(|i| i.quantity)
+            .unwrap_or(0);
+        let desired_qty = current_qty + quantity;
+
+        let region = INVENTORY_REGION_DEFAULT.to_string();
+
+        let availability = InventoryAgentClient::get(product_id.clone())
+            .get_available_quantity(region)
+            .await;
+
+        if desired_qty > availability.available_quantity {
+            return Err(AddItemError::InsufficientStock(InsufficientStockError {
+                message: format!(
+                    "Insufficient stock for product {}. Requested: {}, available: {}",
+                    product_id, desired_qty, availability.available_quantity
+                ),
+                product_id,
+                requested: desired_qty,
+                available: availability.available_quantity,
+            }));
+        }
 
         let updated = state.update_item_quantity(product_id.clone(), quantity, true);
 
@@ -577,28 +626,47 @@ impl CartAgent for CartAgentImpl {
         })
     }
 
-    fn update_item_quantity(
+    async fn update_item_quantity(
         &mut self,
         product_id: String,
         quantity: u32,
     ) -> Result<CartUpdated, UpdateItemQuantityError> {
-        self.with_state(|state| {
-            info!(
-                "Updating quantity of item with product {} to {} in the cart of user {}",
-                product_id, quantity, state.user_id
-            );
+        let state = self.get_state();
+        info!(
+            "Updating quantity of item with product {} to {} in the cart of user {}",
+            product_id, quantity, state.user_id
+        );
 
-            let updated = state.update_item_quantity(product_id.clone(), quantity, false);
+        let item_exists = state.items.iter().any(|i| i.product_id == product_id);
+        if !item_exists {
+            return Err(UpdateItemQuantityError::ItemNotFound(
+                ItemNotFoundError::new(product_id),
+            ));
+        }
 
-            if updated {
-                Ok(CartUpdated {
-                    user_id: state.user_id.clone(),
-                })
-            } else {
-                Err(UpdateItemQuantityError::ItemNotFound(
-                    ItemNotFoundError::new(product_id),
-                ))
-            }
+        let region = INVENTORY_REGION_DEFAULT.to_string();
+
+        let availability = InventoryAgentClient::get(product_id.clone())
+            .get_available_quantity(region)
+            .await;
+
+        if quantity > availability.available_quantity {
+            return Err(UpdateItemQuantityError::InsufficientStock(
+                InsufficientStockError {
+                    message: format!(
+                        "Insufficient stock for product {}. Requested: {}, available: {}",
+                        product_id, quantity, availability.available_quantity
+                    ),
+                    product_id,
+                    requested: quantity,
+                    available: availability.available_quantity,
+                },
+            ));
+        }
+
+        state.update_item_quantity(product_id, quantity, false);
+        Ok(CartUpdated {
+            user_id: state.user_id.clone(),
         })
     }
 

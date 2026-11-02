@@ -1,5 +1,6 @@
 pub mod cart;
 pub mod common;
+pub mod inventory;
 pub mod order;
 pub mod pricing;
 pub mod product;

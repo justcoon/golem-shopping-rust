@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub const CURRENCY_DEFAULT: &str = "USD";
 pub const PRICING_REGION_DEFAULT: &str = "global";
+pub const INVENTORY_REGION_DEFAULT: &str = "global";
 
 #[derive(Schema, Clone, Serialize, Deserialize)]
 pub struct Address {

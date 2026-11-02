@@ -12,6 +12,7 @@ This is a simple e-commerce application built with an agent-based architecture, 
 ### Agents
 - **Product Agent**: Manages the product catalog and product-related operations.
 - **Pricing Agent**: Handles product pricing, discounts, and promotions.
+- **Inventory Agent**: Manages regional product stock, order reservations, and stock fulfillment.
 - **Cart Agent**: Manages user shopping carts, with one cart per user, and handles cart-to-order conversion.
 - **Order Agent**: Manages the complete order lifecycle from creation to fulfillment.
 - **Product Search Agent**: Provides product search capabilities across the catalog.
@@ -30,7 +31,7 @@ This is a simple e-commerce application built with an agent-based architecture, 
 4. An external AI/LLM service enhances the Shopping Assistant's capabilities
 
 ### State Management
-All core agents (Product, Pricing, Cart, Order, and Shopping Assistant) have their state managed by Golem Cloud, ensuring reliability and scalability through the agent-based architecture.
+All core agents (Product, Pricing, Inventory, Cart, Order, and Shopping Assistant) have their state managed by Golem Cloud, ensuring reliability and scalability through the agent-based architecture.
 
 
 ## Quick Start

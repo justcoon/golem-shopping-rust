@@ -41,6 +41,7 @@ httpApi:
       agents:
         ProductAgent: {}
         PricingAgent: {}
+        InventoryAgent: {}
         ProductSearchAgent: {}
         CartAgent: {}
         OrderAgent: {}
