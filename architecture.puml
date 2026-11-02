@@ -96,6 +96,7 @@ note right of cart
   - Manages user shopping carts
   - One cart per user
   - Converts to order on checkout
+  - Preserves saved contact info & order history
   - State managed by Golem Cloud
 end note
 

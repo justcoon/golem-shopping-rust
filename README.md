@@ -13,7 +13,7 @@ This is a simple e-commerce application built with an agent-based architecture, 
 - **Product Agent**: Manages the product catalog and product-related operations.
 - **Pricing Agent**: Handles product pricing, discounts, and promotions.
 - **Inventory Agent**: Manages regional product stock, order reservations, and stock fulfillment.
-- **Cart Agent**: Manages user shopping carts, with one cart per user, and handles cart-to-order conversion.
+- **Cart Agent**: Manages user shopping carts, cart-to-order conversion, saved contact details, and past order history.
 - **Order Agent**: Manages the complete order lifecycle from creation to fulfillment.
 - **Product Search Agent**: Provides product search and batch lookup capabilities with active prices and stock.
 - **Order Search Agent**: Provides order search and discovery across customers and statuses.

@@ -5,7 +5,7 @@ pub const CURRENCY_DEFAULT: &str = "USD";
 pub const PRICING_REGION_DEFAULT: &str = "global";
 pub const INVENTORY_REGION_DEFAULT: &str = "global";
 
-#[derive(Schema, Clone, Serialize, Deserialize)]
+#[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct Address {
     pub street: String,
     pub city: String,

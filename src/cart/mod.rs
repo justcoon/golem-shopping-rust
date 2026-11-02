@@ -1,12 +1,12 @@
 use crate::common::{Address, CURRENCY_DEFAULT, INVENTORY_REGION_DEFAULT, PRICING_REGION_DEFAULT};
 use crate::inventory::InventoryAgentClient;
-use crate::order::{CreateOrder, OrderAgentClient, OrderItem};
+use crate::order::{CreateOrder, Order, OrderAgentClient, OrderItem};
 use crate::pricing::{PricingAgentClient, PricingItem};
 use crate::product::{Product, ProductAgentClient};
 use crate::shopping_assistant::ShoppingAssistantAgentClient;
 use email_address::EmailAddress;
-use futures::future::join;
-use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
+use futures::future::{join, join_all};
+use golem_rust::{Schema, agent_definition, agent_implementation, description, endpoint, prompt};
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -269,6 +269,14 @@ pub struct OrderConfirmation {
     pub order_id: String,
 }
 
+#[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct SavedContactInfo {
+    pub shipping_address: Option<Address>,
+    pub billing_address: Option<Address>,
+    pub email: Option<String>,
+    pub source_order_id: Option<String>,
+}
+
 #[derive(Schema, Clone)]
 pub struct CartUpdated {
     pub user_id: String,
@@ -403,6 +411,31 @@ pub trait CartAgent {
         name: Option<String>,
         phone_number: Option<String>,
     ) -> Result<CartUpdated, UpdateAddressError>;
+
+    #[endpoint(get = "/saved-contact")]
+    #[prompt(
+        "Call this before checkout to check if the user has saved shipping/billing details from previous orders."
+    )]
+    #[description(
+        "Retrieves previously saved contact information and addresses from the user's past orders."
+    )]
+    async fn get_saved_contact_info(&self) -> Option<SavedContactInfo>;
+
+    #[endpoint(post = "/use-saved-contact")]
+    #[prompt(
+        "Call this when the user confirms they want to use their saved address and contact info for 1-click checkout."
+    )]
+    #[description(
+        "Applies saved contact details and addresses from previous orders to the current cart."
+    )]
+    async fn apply_saved_contact_info(&mut self) -> Result<CartUpdated, UpdateAddressError>;
+
+    #[endpoint(get = "/orders?limit={limit}")]
+    #[prompt(
+        "Call this when the user asks about their previous orders, order history, or recent purchases."
+    )]
+    #[description("Retrieves past orders placed by this customer.")]
+    async fn get_order_history(&self, limit: Option<u32>) -> Vec<Order>;
 }
 
 struct CartAgentImpl {
@@ -702,6 +735,97 @@ impl CartAgent for CartAgentImpl {
         })
     }
 
+    async fn get_saved_contact_info(&self) -> Option<SavedContactInfo> {
+        info!("Getting saved contact info for user {}", self._id);
+        let cart = self.state.as_ref()?;
+        let last_order_id = cart.previous_order_ids.last()?.clone();
+        let order = OrderAgentClient::get(last_order_id.clone())
+            .get_order()
+            .await?;
+
+        Some(SavedContactInfo {
+            shipping_address: order.shipping_address,
+            billing_address: order.billing_address,
+            email: order.email,
+            source_order_id: Some(last_order_id),
+        })
+    }
+
+    async fn apply_saved_contact_info(&mut self) -> Result<CartUpdated, UpdateAddressError> {
+        let state = self.get_state();
+        info!("Applying saved contact info for user {}", state.user_id);
+
+        let last_order_id = match state.previous_order_ids.last() {
+            Some(id) => id.clone(),
+            None => {
+                return Err(UpdateAddressError::AddressNotValid(AddressNotValidError {
+                    message: "No previous orders found to apply saved contact info".to_string(),
+                }));
+            }
+        };
+
+        let order = match OrderAgentClient::get(last_order_id.clone())
+            .get_order()
+            .await
+        {
+            Some(order) => order,
+            None => {
+                return Err(UpdateAddressError::AddressNotValid(AddressNotValidError {
+                    message: format!("Previous order {last_order_id} could not be retrieved"),
+                }));
+            }
+        };
+
+        if let Some(shipping) = order.shipping_address {
+            state.set_shipping_address(shipping);
+        }
+        if let Some(billing) = order.billing_address {
+            state.set_billing_address(billing);
+        }
+        if let Some(email) = order.email {
+            state.set_email(email);
+        }
+
+        Ok(CartUpdated {
+            user_id: state.user_id.clone(),
+        })
+    }
+
+    async fn get_order_history(&self, limit: Option<u32>) -> Vec<Order> {
+        info!(
+            "Getting order history for user {}, limit: {:?}",
+            self._id, limit
+        );
+        let cart = match self.state.as_ref() {
+            Some(cart) => cart,
+            None => return vec![],
+        };
+
+        if cart.previous_order_ids.is_empty() {
+            return vec![];
+        }
+
+        let max_count = limit.unwrap_or(10) as usize;
+        let order_ids: Vec<String> = cart
+            .previous_order_ids
+            .iter()
+            .rev()
+            .take(max_count)
+            .cloned()
+            .collect();
+
+        let tasks: Vec<_> = order_ids
+            .into_iter()
+            .map(|order_id| async move {
+                let client = OrderAgentClient::get(order_id);
+                client.get_order().await
+            })
+            .collect();
+
+        let orders = join_all(tasks).await;
+        orders.into_iter().flatten().collect()
+    }
+
     async fn load_snapshot(
         bytes: Vec<u8>,
         context: golem_rust::agentic::SnapshotRestoreContext,
@@ -720,5 +844,33 @@ impl CartAgent for CartAgentImpl {
 
     async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
         crate::common::snapshot::serialize(&self.state)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_saved_contact_info_construction() {
+        let addr = Address {
+            street: "123 Main St".to_string(),
+            city: "San Francisco".to_string(),
+            state_or_region: "CA".to_string(),
+            country: "USA".to_string(),
+            postal_code: "94105".to_string(),
+            name: Some("Jane Doe".to_string()),
+            phone_number: Some("+1-555-0199".to_string()),
+        };
+
+        let contact = SavedContactInfo {
+            shipping_address: Some(addr.clone()),
+            billing_address: Some(addr),
+            email: Some("jane@example.com".to_string()),
+            source_order_id: Some("ord-999".to_string()),
+        };
+
+        assert_eq!(contact.email.as_deref(), Some("jane@example.com"));
+        assert_eq!(contact.source_order_id.as_deref(), Some("ord-999"));
     }
 }
