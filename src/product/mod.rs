@@ -1,4 +1,4 @@
-use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
+use golem_rust::{Schema, agent_definition, agent_implementation, endpoint, read_only};
 use serde::{Deserialize, Serialize};
 
 #[derive(Schema, Clone, Serialize, Deserialize)]
@@ -13,9 +13,10 @@ pub struct Product {
 }
 
 #[agent_definition(mount = "/v1/product/{id}")]
-trait ProductAgent {
+pub trait ProductAgent {
     fn new(id: String) -> Self;
 
+    #[read_only]
     #[endpoint(get = "/")]
     fn get_product(&self) -> Option<Product>;
 

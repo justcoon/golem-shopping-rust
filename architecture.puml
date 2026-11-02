@@ -47,6 +47,8 @@ order --> product : "RPC\nGet product info"
 order --> pricing : "RPC\nGet pricing info"
 order --> inventory : "RPC\nReserve / adjust / release / fulfill inventory"
 product_search --> product : "RPC\nGet product info"
+product_search --> pricing : "RPC\nGet price info"
+product_search --> inventory : "RPC\nCheck inventory"
 order_search --> order : "RPC\nGet order info"
 
 ' Shopping Assistant relationships
@@ -109,6 +111,7 @@ note right of product_search
   <b>Product Search Agent</b>
   - Agent per request
   - Gets product info from Product Agents
+  - Enriches products with Pricing and Inventory
   - No persistent state
 end note
 

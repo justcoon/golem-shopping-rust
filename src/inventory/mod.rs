@@ -1,4 +1,4 @@
-use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
+use golem_rust::{Schema, agent_definition, agent_implementation, endpoint, read_only};
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -213,9 +213,11 @@ pub enum ReserveQuantityError {
 pub trait InventoryAgent {
     fn new(id: String) -> Self;
 
+    #[read_only]
     #[endpoint(get = "/")]
     fn get_inventory(&self) -> Option<Inventory>;
 
+    #[read_only]
     #[endpoint(get = "/availability?region={region}")]
     fn get_available_quantity(&self, region: String) -> Availability;
 
