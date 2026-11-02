@@ -4,7 +4,7 @@ use crate::pricing::PricingAgentClient;
 use crate::product::ProductAgentClient;
 use email_address::EmailAddress;
 use futures::future::join;
-use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
+use golem_rust::{Schema, agent_definition, agent_implementation, endpoint, read_only};
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -115,7 +115,7 @@ pub struct OrderItem {
     pub quantity: u32,
 }
 
-#[derive(Schema, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Schema, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Debug)]
 pub enum OrderStatus {
     New,
     Shipped,
@@ -288,6 +288,7 @@ pub trait OrderAgent {
     async fn initialize_order(&mut self, data: CreateOrder)
     -> Result<OrderUpdated, InitOrderError>;
 
+    #[read_only]
     #[endpoint(get = "/")]
     fn get_order(&self) -> Option<Order>;
 

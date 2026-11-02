@@ -22,6 +22,7 @@ package "Golem Cloud" {
     [Cart Agent] as cart #FADBD8
     [Order Agent] as order #E8DAEF
     [Product Search Agent] as product_search #D1F2EB
+    [Order Search Agent] as order_search #D1F2EB
     [Shopping Assistant Agent] as assistant #E8F8F5
 }
 
@@ -34,6 +35,7 @@ gateway --> inventory : "RPC\nInventory API"
 gateway --> cart : "RPC\nCart API"
 gateway --> order : "RPC\nOrder API"
 gateway --> product_search : "RPC\nProduct Search API"
+gateway --> order_search : "RPC\nOrder Search API"
 gateway --> assistant : "RPC\nAssistant API"
 
 ' Agent-to-agent communication
@@ -45,6 +47,7 @@ order --> product : "RPC\nGet product info"
 order --> pricing : "RPC\nGet pricing info"
 order --> inventory : "RPC\nReserve / adjust / release / fulfill inventory"
 product_search --> product : "RPC\nGet product info"
+order_search --> order : "RPC\nGet order info"
 
 ' Shopping Assistant relationships
 assistant --> cart : "RPC\nGet order history"
@@ -61,6 +64,7 @@ note right of gateway
   • /v1/order/** → Order Agent
   • /v1/assistant/** → Shopping Assistant Agent
   • /v1/product/search → Product Search Agent
+  • /v1/order-search/** → Order Search Agent
   - Transforms REST to Golem RPC
 end note
 
@@ -105,6 +109,13 @@ note right of product_search
   <b>Product Search Agent</b>
   - Agent per request
   - Gets product info from Product Agents
+  - No persistent state
+end note
+
+note right of order_search
+  <b>Order Search Agent</b>
+  - Agent per request
+  - Discovers & queries Order Agents
   - No persistent state
 end note
 

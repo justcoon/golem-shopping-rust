@@ -45,4 +45,5 @@ httpApi:
         ProductSearchAgent: {}
         CartAgent: {}
         OrderAgent: {}
+        OrderSearchAgent: {}
         ShoppingAssistantAgent: {}
