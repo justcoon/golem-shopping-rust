@@ -165,7 +165,7 @@ pub async fn process_chat_turn<D: ToolDispatcher>(
         Ok(cfg) => (
             cfg.llm.api_key.get().unwrap_or_default(),
             cfg.llm.model.get().unwrap_or_default(),
-            cfg.llm.api_url.clone(),
+            cfg.llm.api_url.get().ok(),
         ),
         Err(_) => (String::new(), String::new(), None),
     };

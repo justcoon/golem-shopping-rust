@@ -5,6 +5,7 @@ import {
   escapeHtml,
   formatTime,
   normalizeChunk,
+  normalizeRole,
   normalizeToolCall,
   renderMarkdown,
 } from "./chat-common.js";
@@ -419,7 +420,13 @@ async function loadHistory() {
     const res = await fetch(`/v1/manager/${encodeURIComponent(currentManagerId)}/history`);
     if (!res.ok) return;
 
-    const history = await res.json();
+    let history = await res.json();
+    if (history && !Array.isArray(history)) {
+      if (Array.isArray(history.value)) history = history.value;
+      else if (Array.isArray(history.Ok)) history = history.Ok;
+      else if (Array.isArray(history.ok)) history = history.ok;
+      else if (Array.isArray(history.messages)) history = history.messages;
+    }
     if (!Array.isArray(history) || history.length === 0) {
       if (welcomeMessage) welcomeMessage.style.display = "block";
       return;
@@ -430,24 +437,35 @@ async function loadHistory() {
 
     let lastPrompt = "";
     for (const msg of history) {
-      if (msg.role === "user") {
+      const role = normalizeRole(msg.role);
+      if (role === "user") {
         lastPrompt = msg.content;
         appendUserMessage(msg.content, msg.timestamp);
-      } else if (msg.role === "assistant") {
+      } else if (role === "assistant") {
         const bubble = createAssistantBubble(lastPrompt, msg.timestamp);
         bubble.setText(msg.content || "");
         if (bubble.cursor) bubble.cursor.remove();
 
-        const toolCalls = msg.toolCalls || msg.tool_calls;
+        const toolCalls = msg.toolCalls || msg.tool_calls || msg.tool_calls_used || msg.toolCallsUsed;
         if (Array.isArray(toolCalls) && toolCalls.length > 0) {
           for (const rawTc of toolCalls) {
             const tc = normalizeToolCall(rawTc);
             if (!tc) continue;
+            let summary = "";
+            if (tc.result) {
+              try {
+                const resObj = typeof tc.result === "string" ? JSON.parse(tc.result) : tc.result;
+                summary = resObj.summary || (resObj.error ? `Failed: ${resObj.error}` : "");
+              } catch {
+                summary = String(tc.result);
+              }
+            }
+            const isFailed = summary.toLowerCase().includes("failed") || summary.toLowerCase().includes("error");
             const card = document.createElement("div");
-            card.className = "tool-card completed";
+            card.className = `tool-card ${isFailed ? "failed" : "completed"}`;
             card.innerHTML = `
-              <span>✅</span>
-              <span><strong>${escapeHtml(tc.toolName)}</strong></span>
+              <span>${isFailed ? "⚠️" : "✅"}</span>
+              <span><strong>${escapeHtml(tc.toolName)}</strong>${summary ? `: ${escapeHtml(summary)}` : ""}</span>
             `;
             bubble.toolCardsContainer.appendChild(card);
           }

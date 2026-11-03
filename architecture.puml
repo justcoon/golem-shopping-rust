@@ -18,13 +18,17 @@ package "Golem Cloud" {
     [API Gateway] as gateway #F9E79F
     [Product Agent] as product #D5F5E3
     [Pricing Agent] as pricing #D6EAF8
-    [Inventory Agent] as inventory #D4EFDF
+    [Inventory Agent] as inventory #FCF3CF
     [Cart Agent] as cart #FADBD8
     [Order Agent] as order #E8DAEF
     [Product Search Agent] as product_search #D1F2EB
     [Order Search Agent] as order_search #D1F2EB
     [Shopping Assistant Agent] as assistant #E8F8F5
+    [Manager Agent] as manager #FADBD8
 }
+
+' External Services
+[AI / LLM Service] as llm #D6EAF8
 
 ' Define relationships
 user --> gateway : "HTTP Requests\n(REST API Calls)"
@@ -37,36 +41,51 @@ gateway --> order : "RPC\nOrder API"
 gateway --> product_search : "RPC\nProduct Search API"
 gateway --> order_search : "RPC\nOrder Search API"
 gateway --> assistant : "RPC\nAssistant API"
+gateway --> manager : "RPC\nManager API"
 
 ' Agent-to-agent communication
 cart --> product : "RPC\nGet product info"
 cart --> pricing : "RPC\nGet pricing info"
-cart --> inventory : "RPC\nCheck inventory"
+cart --> inventory : "RPC\nCheck availability"
 cart --> order : "RPC\nCreate order from cart"
 order --> product : "RPC\nGet product info"
 order --> pricing : "RPC\nGet pricing info"
-order --> inventory : "RPC\nReserve / adjust / release / fulfill inventory"
+order --> inventory : "RPC\nReserve / adjust / release inventory"
 product_search --> product : "RPC\nGet product info"
-product_search --> pricing : "RPC\nGet price info"
-product_search --> inventory : "RPC\nCheck inventory"
-order_search --> order : "RPC\nGet order info"
+product_search --> inventory : "RPC\nGet stock status"
 
-' Shopping Assistant relationships
-assistant --> cart : "RPC\nGet order history"
-assistant --> order : "RPC\nGet orders"
+' Shopping Assistant relationships (Autonomous Tool Execution)
+assistant --> product_search : "RPC\nSearch products & prices"
+assistant --> cart : "RPC\nManage cart & checkout"
+assistant --> order : "RPC\nGet order details"
+
+' Order Search relationships
+order_search --> order : "RPC\nStream & query orders"
+
+' Manager Assistant relationships
+manager --> order : "RPC\nModify, ship & cancel orders"
+manager --> order_search : "RPC\nSearch system orders"
+manager --> product : "RPC\nCheck product specs"
+manager --> inventory : "RPC\nCheck stock status"
+manager --> product_search : "RPC\nSearch catalog"
+
+' LLM Service connections
+assistant --> llm : "API Call"
+manager --> llm : "API Call"
 
 ' Add notes
 note right of gateway
   <b>API Gateway</b>
   - Routes REST API to agents
-  • /v1/product/** → Product Agent
-  • /v1/pricing/** → Pricing Agent
-  • /v1/inventory/** → Inventory Agent
-  • /v1/cart/** → Cart Agent
-  • /v1/order/** → Order Agent
-  • /v1/assistant/** → Shopping Assistant Agent
-  • /v1/product/search → Product Search Agent
-  • /v1/order-search/** → Order Search Agent
+  - /v1/product/* -> Product Agent
+  - /v1/pricing/* -> Pricing Agent
+  - /v1/inventory/* -> Inventory Agent
+  - /v1/cart/* -> Cart Agent
+  - /v1/order/* -> Order Agent
+  - /v1/assistant/* -> Shopping Assistant Agent
+  - /v1/manager/* -> Manager Agent
+  - /v1/product/search -> Product Search Agent
+  - /v1/order-search/* -> Order Search Agent
   - Transforms REST to Golem RPC
 end note
 
@@ -85,9 +104,8 @@ end note
 
 note right of inventory
   <b>Inventory Agent</b>
-  - Manages product regional inventory
-  - Handles reservations per order
-  - Fulfills/releases stock on order transitions
+  - Manages regional product stock
+  - Tracks order allocations
   - State managed by Golem Cloud
 end note
 
@@ -96,7 +114,6 @@ note right of cart
   - Manages user shopping carts
   - One cart per user
   - Converts to order on checkout
-  - Preserves saved contact info & order history
   - State managed by Golem Cloud
 end note
 
@@ -112,27 +129,28 @@ note right of product_search
   <b>Product Search Agent</b>
   - Agent per request
   - Gets product info from Product Agents
-  - Enriches products with Pricing and Inventory
   - No persistent state
 end note
 
-note right of order_search
-  <b>Order Search Agent</b>
-  - Agent per request
-  - Discovers & queries Order Agents
-  - No persistent state
+note right of llm
+  <b>AI / LLM Providers</b>
+  - Google Gemini (native generative AI)
+  - OpenRouter / OpenAI-compatible APIs
 end note
-
-' External Services
-[AI/LLM Service] as llm #D6EAF8
-
-' Connect LLM to Shopping Assistant
-assistant --> llm : "API Call"
 
 note right of assistant
   <b>Shopping Assistant Agent</b>
-  - Provides AI-powered shopping assistance
-  - Personalized product and brand recommendations based on shopping history
+  - Autonomous multi-turn tool calling
+  - Tools for search, cart, checkout & orders
+  - Synchronous and SSE streaming chat
+  - State managed by Golem Cloud
+end note
+
+note right of manager
+  <b>Manager Agent</b>
+  - Autonomous operations tool calling
+  - Tools to search, modify, ship & cancel orders
+  - Synchronous and SSE streaming chat
   - State managed by Golem Cloud
 end note
 

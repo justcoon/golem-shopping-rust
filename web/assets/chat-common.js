@@ -254,6 +254,21 @@ export function renderMarkdown(md) {
 }
 
 /**
+ * Normalizes a message role to lowercase ("user", "assistant", "system", etc.).
+ * Handles both case-insensitive strings ("User", "Assistant") and object tags.
+ * @param {any} role
+ * @returns {string}
+ */
+export function normalizeRole(role) {
+  if (!role) return "";
+  if (typeof role === "object") {
+    const keys = Object.keys(role);
+    if (keys.length > 0) return String(keys[0]).toLowerCase().trim();
+  }
+  return String(role).toLowerCase().trim();
+}
+
+/**
  * Normalizes tool call objects across Effect and Rust formats.
  * @param {any} tc
  * @returns {{ id: string, toolName: string, result: any, input: any } | null}
@@ -264,7 +279,7 @@ export function normalizeToolCall(tc) {
     id: tc.id || "",
     toolName: tc.toolName || tc.tool_name || "tool",
     result: tc.result !== undefined ? tc.result : "",
-    input: tc.input || "",
+    input: tc.input || tc.arguments || "",
   };
 }
 

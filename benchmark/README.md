@@ -37,6 +37,7 @@ HOST=http://localhost:9006 API_HOST=localhost:9006 drill --benchmark import.yaml
 This will import:
 - Products with IDs: p001 - p049
 - Pricing for product IDs: p001 - p050
+- Inventory for product IDs: p001 - p050
 
 ## Running Benchmarks
 

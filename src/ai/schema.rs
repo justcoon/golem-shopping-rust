@@ -8,7 +8,8 @@ pub struct LlmConfig {
     pub api_key: Secret<String>,
     #[config_schema(secret)]
     pub model: Secret<String>,
-    pub api_url: Option<String>,
+    #[config_schema(secret)]
+    pub api_url: Secret<String>,
 }
 
 #[derive(ConfigSchema)]
