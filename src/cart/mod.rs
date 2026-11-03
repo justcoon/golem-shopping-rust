@@ -11,6 +11,7 @@ use email_address::EmailAddress;
 use futures::future::{join, join_all};
 use golem_rust::{Schema, agent_definition, agent_implementation, description, endpoint, prompt};
 use log::info;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use uuid::Uuid;
@@ -323,7 +324,7 @@ pub enum UpdateAddressError {
     ActionNotAllowed(ActionNotAllowedError),
 }
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize, JsonSchema, Debug)]
 pub struct OrderConfirmation {
     pub user_id: String,
     pub order_id: String,
@@ -337,7 +338,7 @@ pub struct SavedContactInfo {
     pub source_order_id: Option<String>,
 }
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize, JsonSchema, Debug)]
 pub struct CartUpdated {
     pub user_id: String,
 }

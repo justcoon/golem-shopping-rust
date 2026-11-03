@@ -6,6 +6,7 @@ use email_address::EmailAddress;
 use futures::future::join;
 use golem_rust::{Schema, agent_definition, agent_implementation, endpoint, read_only};
 use log::info;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -266,7 +267,7 @@ pub enum UpdateAddressError {
     ActionNotAllowed(ActionNotAllowedError),
 }
 
-#[derive(Schema, Clone)]
+#[derive(Schema, Clone, Serialize, Deserialize, JsonSchema, Debug)]
 pub struct OrderUpdated {
     pub order_id: String,
     pub user_id: String,

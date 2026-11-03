@@ -21,6 +21,10 @@ components:
   shopping-rust:shopping:
     dir: ""
     templates: rust
+    tools:
+      cart-tool: {}
+      catalog-tool: {}
+      order-tool: {}
 
     # Component environment variables can reference system environment variables with minijinja syntax:
     #
@@ -49,6 +53,31 @@ secretDefaults:
       apiKey: '{{ GEMINI_API_KEY }}'
       model: "gemini-3.1-flash-lite"
       apiUrl: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+tools:
+  cart-tool:
+    component: shopping-rust:shopping
+  catalog-tool:
+    component: shopping-rust:shopping
+  order-tool:
+    component: shopping-rust:shopping
+
+mcp:
+  deployments:
+    local:
+      - domain: localhost:9007
+        tools:
+          cart-tool:
+            ownerComponent: shopping-rust:shopping
+          catalog-tool:
+            ownerComponent: shopping-rust:shopping
+          order-tool:
+            ownerComponent: shopping-rust:shopping
+        agents:
+          CartAgent: {}
+          ProductSearchAgent: {}
+          InventoryAgent: {}
+          OrderAgent: {}
+
 httpApi:
   deployments:
     local:

@@ -1,8 +1,8 @@
 pub mod tools;
 
 use crate::ai::{
-    AgentConfig, ChatChunk, ChatMessage, ChatResponse, ChatTurnResult, ToolDispatcher,
-    execute_agent_chat_stream, process_chat_turn,
+    AgentConfig, ChatChunk, ChatMessage, ChatResponse, ChatTurnResult, LlmConfig, NoopDispatcher,
+    execute_agent_chat_stream, execute_agent_chat_turn, extract_json_str, process_chat_turn,
 };
 use golem_rust::agentic::{AgentStream, Config, spawn_local};
 use golem_rust::{agent_definition, agent_implementation, endpoint, read_only};
@@ -21,16 +21,6 @@ struct LegacyShoppingAssistantSnapshot {
     recommended_items: Option<serde_json::Value>,
     #[serde(default)]
     messages: Vec<ChatMessage>,
-}
-
-struct ShoppingAssistantDispatcher<'a> {
-    user_id: &'a str,
-}
-
-impl ToolDispatcher for ShoppingAssistantDispatcher<'_> {
-    async fn execute(&self, name: &str, arguments: &str) -> (String, String) {
-        execute_shopping_assistant_tool(self.user_id, name, arguments).await
-    }
 }
 
 #[agent_definition(mount = "/v1/assistant/{id}")]
@@ -59,17 +49,16 @@ pub struct ShoppingAssistantAgentImpl {
 
 impl ShoppingAssistantAgentImpl {
     async fn execute_turn(&mut self, message: String) -> ChatTurnResult {
-        let dispatcher = ShoppingAssistantDispatcher { user_id: &self._id };
-        let tools = get_shopping_assistant_tools();
+        let tools = build_shopping_assistant_tools(self._id.clone());
         let mut messages = { self.messages.lock().unwrap().clone() };
         let result = process_chat_turn(
             &self.config,
             &mut messages,
             message,
             SHOPPING_ASSISTANT_SYSTEM_PROMPT,
-            &tools,
+            &tools.specs(),
             "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
-            &dispatcher,
+            &tools,
         )
         .await;
         *self.messages.lock().unwrap() = messages;
@@ -104,8 +93,7 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
         };
         let user_id = self._id.clone();
         spawn_local(async move {
-            let dispatcher = ShoppingAssistantDispatcher { user_id: &user_id };
-            let tools = get_shopping_assistant_tools();
+            let tools = build_shopping_assistant_tools(user_id);
             execute_agent_chat_stream(
                 api_key,
                 model,
@@ -113,9 +101,9 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
                 messages,
                 message,
                 SHOPPING_ASSISTANT_SYSTEM_PROMPT,
-                &tools,
+                &tools.specs(),
                 "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
-                &dispatcher,
+                &tools,
                 writer,
             )
             .await;

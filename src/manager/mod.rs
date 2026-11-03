@@ -1,8 +1,8 @@
 pub mod tools;
 
 use crate::ai::{
-    AgentConfig, ChatChunk, ChatMessage, ChatResponse, ChatTurnResult, ToolDispatcher,
-    execute_agent_chat_stream, process_chat_turn,
+    AgentConfig, ChatChunk, ChatMessage, ChatResponse, ChatTurnResult, execute_agent_chat_stream,
+    process_chat_turn,
 };
 use golem_rust::agentic::{AgentStream, Config, spawn_local};
 use golem_rust::{agent_definition, agent_implementation, endpoint, read_only};
@@ -14,16 +14,6 @@ use tools::*;
 struct ManagerSnapshot {
     #[serde(default)]
     messages: Vec<ChatMessage>,
-}
-
-struct ManagerDispatcher<'a> {
-    manager_id: &'a str,
-}
-
-impl ToolDispatcher for ManagerDispatcher<'_> {
-    async fn execute(&self, name: &str, arguments: &str) -> (String, String) {
-        execute_manager_tool(self.manager_id, name, arguments).await
-    }
 }
 
 #[agent_definition(mount = "/v1/manager/{id}")]
@@ -52,19 +42,16 @@ pub struct ManagerAgentImpl {
 
 impl ManagerAgentImpl {
     async fn execute_turn(&mut self, message: String) -> ChatTurnResult {
-        let dispatcher = ManagerDispatcher {
-            manager_id: &self._id,
-        };
-        let tools = get_manager_tools();
+        let tools = build_manager_tools();
         let mut messages = { self.messages.lock().unwrap().clone() };
         let result = process_chat_turn(
             &self.config,
             &mut messages,
             message,
             MANAGER_SYSTEM_PROMPT,
-            &tools,
+            &tools.specs(),
             "Manager assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
-            &dispatcher,
+            &tools,
         )
         .await;
         *self.messages.lock().unwrap() = messages;
@@ -97,12 +84,8 @@ impl ManagerAgent for ManagerAgentImpl {
             ),
             Err(_) => (String::new(), String::new(), None),
         };
-        let manager_id = self._id.clone();
         spawn_local(async move {
-            let dispatcher = ManagerDispatcher {
-                manager_id: &manager_id,
-            };
-            let tools = get_manager_tools();
+            let tools = build_manager_tools();
             execute_agent_chat_stream(
                 api_key,
                 model,
@@ -110,9 +93,9 @@ impl ManagerAgent for ManagerAgentImpl {
                 messages,
                 message,
                 MANAGER_SYSTEM_PROMPT,
-                &tools,
+                &tools.specs(),
                 "Manager assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
-                &dispatcher,
+                &tools,
                 writer,
             )
             .await;
