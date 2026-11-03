@@ -2,16 +2,18 @@ pub mod tools;
 
 use crate::ai::{
     AgentConfig, ChatChunk, ChatMessage, ChatResponse, ChatTurnResult, LlmConfig, NoopDispatcher,
-    ToolDispatcher, execute_agent_chat_turn, extract_json_str, process_chat_turn,
+    ToolDispatcher, execute_agent_chat_stream, execute_agent_chat_turn, extract_json_str,
+    process_chat_turn,
 };
 use crate::cart::CartAgentClient;
 use crate::order::{OrderAgentClient, OrderItem};
 use futures::future::join_all;
-use golem_rust::agentic::{AgentStream, Config};
+use golem_rust::agentic::{AgentStream, Config, spawn_local};
 use golem_rust::{Schema, agent_definition, agent_implementation, endpoint, read_only};
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tools::*;
 
 pub const RECOMMENDATION_INPUT_COUNT: u8 = 100;
@@ -199,23 +201,26 @@ pub struct ShoppingAssistantAgentImpl {
     _id: String,
     config: Config<AgentConfig>,
     recommended_items: RecommendedItems,
-    messages: Vec<ChatMessage>,
+    messages: Arc<Mutex<Vec<ChatMessage>>>,
 }
 
 impl ShoppingAssistantAgentImpl {
     async fn execute_turn(&mut self, message: String) -> ChatTurnResult {
         let dispatcher = ShoppingAssistantDispatcher { user_id: &self._id };
         let tools = get_shopping_assistant_tools();
-        process_chat_turn(
+        let mut messages = { self.messages.lock().unwrap().clone() };
+        let result = process_chat_turn(
             &self.config,
-            &mut self.messages,
+            &mut messages,
             message,
             SHOPPING_ASSISTANT_SYSTEM_PROMPT,
             &tools,
             "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
             &dispatcher,
         )
-        .await
+        .await;
+        *self.messages.lock().unwrap() = messages;
+        result
     }
 }
 
@@ -230,7 +235,7 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
                 product_brands: Vec::new(),
                 updated_at: chrono::Utc::now(),
             },
-            messages: Vec::new(),
+            messages: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -239,15 +244,43 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
     }
 
     async fn chat_stream(&mut self, message: String) -> AgentStream<ChatChunk> {
-        self.execute_turn(message).await.to_stream()
+        let (writer, stream) = AgentStream::new();
+        let messages = self.messages.clone();
+        let (api_key, model, api_url) = match self.config.get() {
+            Ok(cfg) => (
+                cfg.llm.api_key.get().unwrap_or_default(),
+                cfg.llm.model.get().unwrap_or_default(),
+                cfg.llm.api_url.get().ok(),
+            ),
+            Err(_) => (String::new(), String::new(), None),
+        };
+        let user_id = self._id.clone();
+        spawn_local(async move {
+            let dispatcher = ShoppingAssistantDispatcher { user_id: &user_id };
+            let tools = get_shopping_assistant_tools();
+            execute_agent_chat_stream(
+                api_key,
+                model,
+                api_url,
+                messages,
+                message,
+                SHOPPING_ASSISTANT_SYSTEM_PROMPT,
+                &tools,
+                "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
+                &dispatcher,
+                writer,
+            )
+            .await;
+        });
+        stream
     }
 
     fn get_history(&self) -> Vec<ChatMessage> {
-        self.messages.clone()
+        self.messages.lock().unwrap().clone()
     }
 
     fn clear_history(&mut self) {
-        self.messages.clear();
+        self.messages.lock().unwrap().clear();
     }
 
     fn get_recommended_items(&self) -> RecommendedItems {
@@ -308,14 +341,14 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
             _id: id,
             config: Config::new(),
             recommended_items,
-            messages,
+            messages: Arc::new(Mutex::new(messages)),
         })
     }
 
     async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
         let snapshot = ShoppingAssistantSnapshot {
             recommended_items: self.recommended_items.clone(),
-            messages: self.messages.clone(),
+            messages: self.messages.lock().unwrap().clone(),
         };
         crate::common::snapshot::serialize(&snapshot)
     }

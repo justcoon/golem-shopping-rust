@@ -1,10 +1,12 @@
 use crate::ai::schema::{
     AgentConfig, ChatChunk, ChatMessage, ChatMessageType, ChatResponse, ChatRole, ToolCallRecord,
 };
-use golem_rust::agentic::{AgentStream, Config, spawn_local};
+use golem_rust::agentic::{AgentStream, AgentStreamWriter, Config, spawn_local};
 use golem_rust::http::{self, Request};
+use http_body_util::BodyExt;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
+use std::sync::{Arc, Mutex};
 
 pub const MAX_LOOP_TURNS: usize = 10;
 
@@ -15,12 +17,18 @@ pub struct ToolSpec {
     pub parameters: serde_json::Value,
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct OpenAiChatRequest {
     model: String,
     messages: Vec<OpenAiMessage>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<OpenAiTool>,
+    #[serde(skip_serializing_if = "is_false", default)]
+    stream: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -116,6 +124,122 @@ struct OpenAiChoice {
 #[derive(Deserialize, Debug)]
 struct OpenAiErrorPayload {
     message: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+struct OpenAiStreamChunk {
+    choices: Option<Vec<OpenAiStreamChoice>>,
+    error: Option<OpenAiErrorPayload>,
+}
+
+#[derive(Deserialize, Debug)]
+struct OpenAiStreamChoice {
+    delta: Option<OpenAiStreamDelta>,
+    #[allow(dead_code)]
+    finish_reason: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Default)]
+struct OpenAiStreamDelta {
+    content: Option<String>,
+    tool_calls: Option<Vec<OpenAiStreamToolCall>>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct OpenAiStreamToolCall {
+    index: Option<usize>,
+    id: Option<String>,
+    #[allow(dead_code)]
+    r#type: Option<String>,
+    function: Option<OpenAiStreamFunction>,
+    extra_content: Option<serde_json::Value>,
+    #[serde(
+        default,
+        flatten,
+        skip_serializing_if = "std::collections::HashMap::is_empty"
+    )]
+    extra: std::collections::HashMap<String, serde_json::Value>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct OpenAiStreamFunction {
+    name: Option<String>,
+    arguments: Option<String>,
+    #[serde(
+        default,
+        flatten,
+        skip_serializing_if = "std::collections::HashMap::is_empty"
+    )]
+    extra: std::collections::HashMap<String, serde_json::Value>,
+}
+
+#[derive(Default, Clone, Debug)]
+struct StreamedToolCallBuilder {
+    id: String,
+    name: String,
+    arguments: String,
+    extra_content: Option<serde_json::Value>,
+    extra: std::collections::HashMap<String, serde_json::Value>,
+}
+
+#[derive(Default, Debug)]
+pub struct SseDecoder {
+    buffer: Vec<u8>,
+}
+
+impl SseDecoder {
+    pub fn new() -> Self {
+        Self { buffer: Vec::new() }
+    }
+
+    pub fn push_bytes(&mut self, bytes: &[u8]) -> Vec<String> {
+        self.buffer.extend_from_slice(bytes);
+        let mut lines = Vec::new();
+
+        while let Some(pos) = self.buffer.iter().position(|&b| b == b'\n') {
+            let mut line = self.buffer.drain(..=pos).collect::<Vec<u8>>();
+            if line.ends_with(b"\n") {
+                line.pop();
+            }
+            if line.ends_with(b"\r") {
+                line.pop();
+            }
+            if let Ok(s) = String::from_utf8(line) {
+                let trimmed = s.trim();
+                if let Some(data) = trimmed.strip_prefix("data:") {
+                    let data = data.trim();
+                    if !data.is_empty() {
+                        lines.push(data.to_string());
+                    }
+                }
+            }
+        }
+
+        lines
+    }
+
+    pub fn finish(&mut self) -> Vec<String> {
+        let mut lines = Vec::new();
+        if !self.buffer.is_empty() {
+            let mut line = std::mem::take(&mut self.buffer);
+            if line.ends_with(b"\n") {
+                line.pop();
+            }
+            if line.ends_with(b"\r") {
+                line.pop();
+            }
+            if let Ok(s) = String::from_utf8(line) {
+                let trimmed = s.trim();
+                if let Some(data) = trimmed.strip_prefix("data:") {
+                    let data = data.trim();
+                    if !data.is_empty() {
+                        lines.push(data.to_string());
+                    }
+                }
+            }
+        }
+        lines
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -385,6 +509,7 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
             model: model.to_string(),
             messages: messages.clone(),
             tools: open_ai_tools.clone(),
+            stream: false,
         };
 
         let request_bytes = match serde_json::to_vec(&request_payload) {
@@ -676,6 +801,523 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+pub async fn execute_agent_chat_stream<D: ToolDispatcher>(
+    api_key: String,
+    model: String,
+    api_url: Option<String>,
+    messages_arc: Arc<Mutex<Vec<ChatMessage>>>,
+    user_message: String,
+    system_prompt: &str,
+    tools: &[ToolSpec],
+    missing_key_hint: &'static str,
+    dispatcher: &D,
+    mut writer: AgentStreamWriter<ChatChunk>,
+) {
+    let trimmed_key = api_key.trim();
+    if trimmed_key.is_empty() {
+        let msg = missing_key_hint;
+        let _ = writer
+            .write_one(ChatChunk::TextDelta {
+                content: msg.to_string(),
+            })
+            .await;
+        let _ = writer
+            .write_one(ChatChunk::Error {
+                content: msg.to_string(),
+            })
+            .await;
+        let _ = writer
+            .write_one(ChatChunk::Done {
+                content: String::new(),
+            })
+            .await;
+        return;
+    }
+
+    let endpoint_url = resolve_endpoint_url(&model, api_url.as_deref());
+    let is_gemini =
+        endpoint_url.contains("generativelanguage.googleapis.com") || model.starts_with("gemini-");
+
+    let history = {
+        let guard = messages_arc.lock().unwrap();
+        guard.clone()
+    };
+
+    let mut messages: Vec<OpenAiMessage> = Vec::new();
+    messages.push(OpenAiMessage {
+        role: "system".to_string(),
+        content: Some(system_prompt.to_string()),
+        tool_calls: None,
+        tool_call_id: None,
+        extra_content: None,
+        extra: std::collections::HashMap::new(),
+    });
+
+    for h in &history {
+        match h.role {
+            ChatRole::User => messages.push(OpenAiMessage {
+                role: "user".to_string(),
+                content: Some(h.content.clone()),
+                tool_calls: None,
+                tool_call_id: None,
+                extra_content: None,
+                extra: std::collections::HashMap::new(),
+            }),
+            ChatRole::Assistant => messages.push(OpenAiMessage {
+                role: "assistant".to_string(),
+                content: Some(h.content.clone()),
+                tool_calls: None,
+                tool_call_id: None,
+                extra_content: None,
+                extra: std::collections::HashMap::new(),
+            }),
+            ChatRole::System => messages.push(OpenAiMessage {
+                role: "system".to_string(),
+                content: Some(h.content.clone()),
+                tool_calls: None,
+                tool_call_id: None,
+                extra_content: None,
+                extra: std::collections::HashMap::new(),
+            }),
+            ChatRole::Tool => {}
+        }
+    }
+
+    messages.push(OpenAiMessage {
+        role: "user".to_string(),
+        content: Some(user_message.clone()),
+        tool_calls: None,
+        tool_call_id: None,
+        extra_content: None,
+        extra: std::collections::HashMap::new(),
+    });
+
+    let open_ai_tools: Vec<OpenAiTool> = tools
+        .iter()
+        .map(|t| OpenAiTool {
+            r#type: "function".to_string(),
+            function: OpenAiFunction {
+                name: t.name.clone(),
+                description: t.description.clone(),
+                parameters: t.parameters.clone(),
+            },
+        })
+        .collect();
+
+    let mut accumulated_tool_calls: Vec<ToolCallRecord> = Vec::new();
+    let mut final_assistant_reply = String::new();
+    let mut is_error = false;
+
+    for turn in 0..MAX_LOOP_TURNS {
+        let request_payload = OpenAiChatRequest {
+            model: model.clone(),
+            messages: messages.clone(),
+            tools: open_ai_tools.clone(),
+            stream: true,
+        };
+
+        let request_bytes = match serde_json::to_vec(&request_payload) {
+            Ok(b) => b,
+            Err(e) => {
+                let err_msg = format!("Failed to serialize chat request: {e}");
+                let _ = writer
+                    .write_one(ChatChunk::TextDelta {
+                        content: err_msg.clone(),
+                    })
+                    .await;
+                let _ = writer
+                    .write_one(ChatChunk::Error {
+                        content: err_msg.clone(),
+                    })
+                    .await;
+                let _ = writer
+                    .write_one(ChatChunk::Done {
+                        content: String::new(),
+                    })
+                    .await;
+                final_assistant_reply = err_msg;
+                is_error = true;
+                break;
+            }
+        };
+
+        let request = match Request::post(&endpoint_url)
+            .header("Content-Type", "application/json")
+            .header("Accept", "text/event-stream")
+            .header("Authorization", format!("Bearer {trimmed_key}"))
+            .header("HTTP-Referer", "https://golem.cloud")
+            .header("X-Title", "Golem Shopping Agent")
+            .body(request_bytes)
+        {
+            Ok(req) => req,
+            Err(e) => {
+                let err_msg = format!("Failed to build HTTP request: {e}");
+                let _ = writer
+                    .write_one(ChatChunk::TextDelta {
+                        content: err_msg.clone(),
+                    })
+                    .await;
+                let _ = writer
+                    .write_one(ChatChunk::Error {
+                        content: err_msg.clone(),
+                    })
+                    .await;
+                let _ = writer
+                    .write_one(ChatChunk::Done {
+                        content: String::new(),
+                    })
+                    .await;
+                final_assistant_reply = err_msg;
+                is_error = true;
+                break;
+            }
+        };
+
+        log::info!(
+            "AI stream loop turn {turn}: Sending request to {endpoint_url} with model {model}"
+        );
+
+        let response = match http::send(request).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                let err_msg = format!("AI service network request failed: {e}");
+                let _ = writer
+                    .write_one(ChatChunk::TextDelta {
+                        content: err_msg.clone(),
+                    })
+                    .await;
+                let _ = writer
+                    .write_one(ChatChunk::Error {
+                        content: err_msg.clone(),
+                    })
+                    .await;
+                let _ = writer
+                    .write_one(ChatChunk::Done {
+                        content: String::new(),
+                    })
+                    .await;
+                final_assistant_reply = err_msg;
+                is_error = true;
+                break;
+            }
+        };
+
+        let status = response.status();
+        if !status.is_success() {
+            let body_bytes = http::response_bytes(response).await.unwrap_or_default();
+            let body_str = String::from_utf8_lossy(&body_bytes);
+            let parsed_error: Option<OpenAiChatResponse> = serde_json::from_slice(&body_bytes).ok();
+            let err_detail = parsed_error
+                .and_then(|r| r.error)
+                .and_then(|e| e.message)
+                .unwrap_or_else(|| body_str.to_string());
+            let err_msg = format!("AI service error (HTTP {status}): {err_detail}");
+            let _ = writer
+                .write_one(ChatChunk::TextDelta {
+                    content: err_msg.clone(),
+                })
+                .await;
+            let _ = writer
+                .write_one(ChatChunk::Error {
+                    content: err_msg.clone(),
+                })
+                .await;
+            let _ = writer
+                .write_one(ChatChunk::Done {
+                    content: String::new(),
+                })
+                .await;
+            final_assistant_reply = err_msg;
+            is_error = true;
+            break;
+        }
+
+        let mut body = response.into_body();
+        let mut sse_decoder = SseDecoder::new();
+        let mut turn_reply = String::new();
+        let mut streamed_tools: Vec<StreamedToolCallBuilder> = Vec::new();
+        let mut stream_done = false;
+
+        while let Some(frame_res) = body.frame().await {
+            let frame = match frame_res {
+                Ok(f) => f,
+                Err(e) => {
+                    let err_msg = format!("AI response stream read error: {e}");
+                    if !turn_reply.is_empty() {
+                        if !final_assistant_reply.is_empty() {
+                            final_assistant_reply.push(' ');
+                        }
+                        final_assistant_reply.push_str(&turn_reply);
+                    }
+                    if !final_assistant_reply.is_empty() {
+                        final_assistant_reply.push(' ');
+                    }
+                    final_assistant_reply.push_str(&err_msg);
+                    is_error = true;
+                    let _ = writer
+                        .write_one(ChatChunk::Error { content: err_msg })
+                        .await;
+                    let _ = writer
+                        .write_one(ChatChunk::Done {
+                            content: String::new(),
+                        })
+                        .await;
+                    break;
+                }
+            };
+
+            if let Ok(data) = frame.into_data() {
+                for line in sse_decoder.push_bytes(&data) {
+                    if line == "[DONE]" {
+                        stream_done = true;
+                        break;
+                    }
+                    let chunk: OpenAiStreamChunk = match serde_json::from_str(&line) {
+                        Ok(c) => c,
+                        Err(_) => continue,
+                    };
+                    if let Some(err) = chunk.error {
+                        let err_msg = err
+                            .message
+                            .unwrap_or_else(|| "Unknown AI stream error".to_string());
+                        if !final_assistant_reply.is_empty() {
+                            final_assistant_reply.push(' ');
+                        }
+                        final_assistant_reply.push_str(&err_msg);
+                        is_error = true;
+                        let _ = writer
+                            .write_one(ChatChunk::Error { content: err_msg })
+                            .await;
+                        let _ = writer
+                            .write_one(ChatChunk::Done {
+                                content: String::new(),
+                            })
+                            .await;
+                        stream_done = true;
+                        break;
+                    }
+                    if let Some(choices) = chunk.choices {
+                        for choice in choices {
+                            if let Some(delta) = choice.delta {
+                                if let Some(content) = delta.content
+                                    && !content.is_empty()
+                                {
+                                    turn_reply.push_str(&content);
+                                    if writer
+                                        .write_one(ChatChunk::TextDelta { content })
+                                        .await
+                                        .is_err()
+                                    {
+                                        return;
+                                    }
+                                }
+                                if let Some(tcs) = delta.tool_calls {
+                                    for tc in tcs {
+                                        let idx = tc.index.unwrap_or(streamed_tools.len());
+                                        while streamed_tools.len() <= idx {
+                                            streamed_tools.push(StreamedToolCallBuilder::default());
+                                        }
+                                        let builder = &mut streamed_tools[idx];
+                                        if let Some(id) = tc.id {
+                                            builder.id.push_str(&id);
+                                        }
+                                        if let Some(func) = tc.function {
+                                            if let Some(name) = func.name {
+                                                builder.name.push_str(&name);
+                                            }
+                                            if let Some(args) = func.arguments {
+                                                builder.arguments.push_str(&args);
+                                            }
+                                            builder.extra.extend(func.extra);
+                                        }
+                                        if let Some(ec) = tc.extra_content {
+                                            builder.extra_content = Some(ec);
+                                        }
+                                        builder.extra.extend(tc.extra);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if stream_done {
+                    break;
+                }
+            }
+        }
+
+        for line in sse_decoder.finish() {
+            if line == "[DONE]" {
+                break;
+            }
+            if let Ok(chunk) = serde_json::from_str::<OpenAiStreamChunk>(&line)
+                && let Some(choices) = chunk.choices
+            {
+                for choice in choices {
+                    if let Some(delta) = choice.delta
+                        && let Some(content) = delta.content
+                        && !content.is_empty()
+                    {
+                        turn_reply.push_str(&content);
+                        if writer
+                            .write_one(ChatChunk::TextDelta { content })
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !turn_reply.is_empty() {
+            if !final_assistant_reply.is_empty() {
+                final_assistant_reply.push(' ');
+            }
+            final_assistant_reply.push_str(&turn_reply);
+        }
+
+        let valid_tools: Vec<OpenAiToolCall> = streamed_tools
+            .into_iter()
+            .filter(|t| !t.name.is_empty())
+            .enumerate()
+            .map(|(i, t)| {
+                let id = if t.id.is_empty() {
+                    format!("call_{turn}_{i}")
+                } else {
+                    t.id
+                };
+                OpenAiToolCall {
+                    id,
+                    r#type: "function".to_string(),
+                    function: OpenAiToolCallFunction {
+                        name: t.name,
+                        arguments: t.arguments,
+                        extra: t.extra,
+                    },
+                    extra_content: t.extra_content,
+                    extra: std::collections::HashMap::new(),
+                }
+            })
+            .collect();
+
+        if !valid_tools.is_empty() {
+            let mut valid_tools = valid_tools;
+            if is_gemini {
+                for tc in &mut valid_tools {
+                    ensure_gemini_thought_signature(tc);
+                }
+            }
+
+            messages.push(OpenAiMessage {
+                role: "assistant".to_string(),
+                content: if turn_reply.is_empty() {
+                    None
+                } else {
+                    Some(turn_reply)
+                },
+                tool_calls: Some(valid_tools.clone()),
+                tool_call_id: None,
+                extra_content: None,
+                extra: std::collections::HashMap::new(),
+            });
+
+            for tc in valid_tools {
+                let tool_id = tc.id;
+                let tool_name = tc.function.name;
+                let tool_args = tc.function.arguments;
+
+                let start_record = ToolCallRecord {
+                    id: tool_id.clone(),
+                    tool_name: tool_name.clone(),
+                    arguments: tool_args.clone(),
+                    result: String::new(),
+                };
+
+                if writer
+                    .write_one(ChatChunk::ToolStart {
+                        content: format!("Executing {tool_name}..."),
+                        tool_call: start_record,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+
+                log::info!("AI stream loop executing tool '{tool_name}' with args: {tool_args}");
+                let (result_str, summary) = dispatcher.execute(&tool_name, &tool_args).await;
+
+                let end_record = ToolCallRecord {
+                    id: tool_id.clone(),
+                    tool_name: tool_name.clone(),
+                    arguments: tool_args.clone(),
+                    result: result_str.clone(),
+                };
+
+                if writer
+                    .write_one(ChatChunk::ToolResult {
+                        content: summary,
+                        tool_call: end_record.clone(),
+                    })
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+
+                accumulated_tool_calls.push(end_record);
+
+                messages.push(OpenAiMessage {
+                    role: "tool".to_string(),
+                    content: Some(result_str),
+                    tool_calls: None,
+                    tool_call_id: Some(tool_id),
+                    extra_content: None,
+                    extra: std::collections::HashMap::new(),
+                });
+            }
+        } else {
+            let _ = writer
+                .write_one(ChatChunk::Done {
+                    content: String::new(),
+                })
+                .await;
+            break;
+        }
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut guard = messages_arc.lock().unwrap();
+    guard.push(ChatMessage {
+        role: ChatRole::User,
+        content: user_message,
+        tool_calls: None,
+        timestamp: now.clone(),
+        r#type: Some(ChatMessageType::Ok),
+    });
+
+    let msg_type = if is_error {
+        ChatMessageType::Error
+    } else {
+        ChatMessageType::Ok
+    };
+
+    guard.push(ChatMessage {
+        role: ChatRole::Assistant,
+        content: final_assistant_reply,
+        tool_calls: if accumulated_tool_calls.is_empty() {
+            None
+        } else {
+            Some(accumulated_tool_calls)
+        },
+        timestamp: now,
+        r#type: Some(msg_type),
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -750,5 +1392,79 @@ mod tests {
         let (res, summary) = dispatcher.execute("any_tool", "{}").await;
         assert_eq!(res, "");
         assert_eq!(summary, "");
+    }
+
+    #[test]
+    fn test_sse_decoder() {
+        let mut decoder = SseDecoder::new();
+        let chunk1 = b"data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\ndata: {\"choices\":[{\"delta\":";
+        let lines1 = decoder.push_bytes(chunk1);
+        assert_eq!(lines1.len(), 1);
+        assert_eq!(
+            lines1[0],
+            "{\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}"
+        );
+
+        let chunk2 = b"{\"content\":\" world\"}}]}\n\ndata: [DONE]\n";
+        let lines2 = decoder.push_bytes(chunk2);
+        assert_eq!(lines2.len(), 2);
+        assert_eq!(
+            lines2[0],
+            "{\"choices\":[{\"delta\":{\"content\":\" world\"}}]}"
+        );
+        assert_eq!(lines2[1], "[DONE]");
+    }
+
+    #[test]
+    fn test_streamed_tool_call_builder() {
+        let mut streamed_tools: Vec<StreamedToolCallBuilder> = Vec::new();
+        let part1 = OpenAiStreamToolCall {
+            index: Some(0),
+            id: Some("call_abc".to_string()),
+            r#type: Some("function".to_string()),
+            function: Some(OpenAiStreamFunction {
+                name: Some("search_products".to_string()),
+                arguments: Some("{\"query\":".to_string()),
+                extra: std::collections::HashMap::new(),
+            }),
+            extra_content: None,
+            extra: std::collections::HashMap::new(),
+        };
+        let part2 = OpenAiStreamToolCall {
+            index: Some(0),
+            id: None,
+            r#type: None,
+            function: Some(OpenAiStreamFunction {
+                name: None,
+                arguments: Some("\"shoes\"}".to_string()),
+                extra: std::collections::HashMap::new(),
+            }),
+            extra_content: None,
+            extra: std::collections::HashMap::new(),
+        };
+
+        for tc in [part1, part2] {
+            let idx = tc.index.unwrap_or(0);
+            while streamed_tools.len() <= idx {
+                streamed_tools.push(StreamedToolCallBuilder::default());
+            }
+            let builder = &mut streamed_tools[idx];
+            if let Some(id) = tc.id {
+                builder.id.push_str(&id);
+            }
+            if let Some(func) = tc.function {
+                if let Some(name) = func.name {
+                    builder.name.push_str(&name);
+                }
+                if let Some(args) = func.arguments {
+                    builder.arguments.push_str(&args);
+                }
+            }
+        }
+
+        assert_eq!(streamed_tools.len(), 1);
+        assert_eq!(streamed_tools[0].id, "call_abc");
+        assert_eq!(streamed_tools[0].name, "search_products");
+        assert_eq!(streamed_tools[0].arguments, "{\"query\":\"shoes\"}");
     }
 }

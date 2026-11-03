@@ -924,6 +924,7 @@ dependencies = [
  "email_address",
  "futures",
  "golem-rust",
+ "http-body-util",
  "log",
  "regex",
  "schemars",

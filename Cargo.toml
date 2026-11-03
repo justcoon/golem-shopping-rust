@@ -26,3 +26,4 @@ uuid = { version = "1.29.0", features = ["v4"] }
 schemars = { version = "1.2.3", features = ["preserve_order"] }
 regex = "1.13.1"
 futures = "0.3.34"
+http-body-util = "0.1"
