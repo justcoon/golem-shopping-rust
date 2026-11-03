@@ -260,7 +260,7 @@ function renderMarkdown(md: string): string {
   // 1. Extract code blocks
   const codeBlocks: string[] = [];
   let text = md.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, _lang, code) => {
-    const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+    const placeholder = `@@CODEBLOCK${codeBlocks.length}@@`;
     codeBlocks.push(`<pre class="md-code-block"><code>${escapeHtml(code.trim())}</code></pre>`);
     return `\n\n${placeholder}\n\n`;
   });
@@ -268,7 +268,7 @@ function renderMarkdown(md: string): string {
   // 2. Extract inline code
   const inlineCodes: string[] = [];
   text = text.replace(/`([^`]+)`/g, (_, code) => {
-    const placeholder = `__INLINE_CODE_${inlineCodes.length}__`;
+    const placeholder = `@@INLINECODE${inlineCodes.length}@@`;
     inlineCodes.push(`<code class="md-inline-code">${escapeHtml(code)}</code>`);
     return placeholder;
   });
@@ -424,7 +424,7 @@ function renderMarkdown(md: string): string {
         block.startsWith("<h2") ||
         block.startsWith("<h3") ||
         block.startsWith("<pre") ||
-        block.startsWith("__CODE_BLOCK")
+        block.startsWith("@@CODEBLOCK")
       ) {
         return block;
       }
@@ -434,8 +434,8 @@ function renderMarkdown(md: string): string {
     .join("\n");
 
   // 9. Restore code blocks & inline code
-  text = text.replace(/__INLINE_CODE_(\d+)__/g, (_, idx) => inlineCodes[Number(idx)]);
-  text = text.replace(/__CODE_BLOCK_(\d+)__/g, (_, idx) => codeBlocks[Number(idx)]);
+  text = text.replace(/@@INLINECODE(\d+)@@/g, (_, idx) => inlineCodes[Number(idx)]);
+  text = text.replace(/@@CODEBLOCK(\d+)@@/g, (_, idx) => codeBlocks[Number(idx)]);
 
   return text;
 }
