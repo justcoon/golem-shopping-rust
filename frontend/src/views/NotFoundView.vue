@@ -6,9 +6,7 @@
   <div class="not-found">
     <div class="error-code">404</div>
     <h1>Page Not Found</h1>
-    <p class="error-message">
-      Oops! The page you're looking for doesn't exist or has been moved.
-    </p>
+    <p class="error-message">Oops! The page you're looking for doesn't exist or has been moved.</p>
     <div class="suggestions">
       <p>Here are some helpful links instead:</p>
       <ul>

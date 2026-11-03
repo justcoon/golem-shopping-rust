@@ -3,47 +3,42 @@ import type { Address } from "@/types/address";
 import { DateTime } from "@/types/datetime.ts";
 
 export interface OrderItem {
-  "product_id": string;
-  "product_name": string;
-  "product_brand": string;
+  product_id: string;
+  product_name: string;
+  product_brand: string;
   price: number;
   quantity: number;
 }
 
 export interface Order {
-  "order_id": string;
-  "user_id": string;
+  order_id: string;
+  user_id: string;
   items: OrderItem[];
-  email: string;
-  "billing_address"?: Address;
-  "shipping_address"?: Address;
-  "order_status": string;
+  email?: string;
+  billing_address?: Address;
+  shipping_address?: Address;
+  order_status: string;
   total: number;
   currency: string;
-  "created_at": DateTime;
-  "updated_at": DateTime;
+  created_at: DateTime;
+  updated_at: DateTime;
 }
 
 export const getOrder = async (orderId: string): Promise<Order> => {
   try {
-    const response = await apiClient.get(`/v1/order/${orderId}`);
-    return response;
+    return await apiClient.get(`/v1/order/${orderId}`);
   } catch (error) {
     console.error(`Error fetching order ${orderId}:`, error);
     throw error;
   }
 };
 
-export const getUserOrders = async (
-  userId: string,
-  orderIds: string[] = [],
-): Promise<Order[]> => {
+export const getUserOrders = async (userId: string, orderIds: string[] = []): Promise<Order[]> => {
   try {
     if (!orderIds || orderIds.length === 0) {
       return [];
     }
 
-    // Fetch all orders in parallel
     const orderPromises = orderIds.map((orderId) =>
       getOrder(orderId).catch((error) => {
         console.error(`Error fetching order ${orderId}:`, error);
@@ -52,8 +47,6 @@ export const getUserOrders = async (
     );
 
     const orders = await Promise.all(orderPromises);
-
-    // Filter out any failed order fetches and ensure we only return valid orders
     return orders.filter((order): order is Order => order !== null);
   } catch (error) {
     console.error(`Error fetching orders for user ${userId}:`, error);
@@ -61,10 +54,7 @@ export const getUserOrders = async (
   }
 };
 
-export const updateOrderEmail = async (
-  orderId: string,
-  email: string,
-): Promise<void> => {
+export const updateOrderEmail = async (orderId: string, email: string): Promise<void> => {
   try {
     await apiClient.put(`/v1/order/${orderId}/email`, { email });
   } catch (error) {
@@ -73,34 +63,14 @@ export const updateOrderEmail = async (
   }
 };
 
-const sanitizeAddress = (address: Address): Address => {
-  const sanitized: Address = {
-    street: address.street,
-    city: address.city,
-    state_or_region: address.state_or_region,
-    country: address.country,
-    postal_code: address.postal_code,
-  };
-  if (address.name) sanitized.name = address.name;
-  if (address.phone_number) sanitized.phone_number = address.phone_number;
-  return sanitized;
-};
-
 export const updateOrderBillingAddress = async (
   orderId: string,
   address: Address,
-): Promise<Order> => {
+): Promise<void> => {
   try {
-    const response = await apiClient.put(
-      `/v1/order/${orderId}/billing-address`,
-      sanitizeAddress(address),
-    );
-    return response.data;
+    await apiClient.put(`/v1/order/${orderId}/billing-address`, address);
   } catch (error) {
-    console.error(
-      `Error updating billing address for order ${orderId}:`,
-      error,
-    );
+    console.error(`Error updating billing address for order ${orderId}:`, error);
     throw error;
   }
 };
@@ -108,18 +78,11 @@ export const updateOrderBillingAddress = async (
 export const updateOrderShippingAddress = async (
   orderId: string,
   address: Address,
-): Promise<Order> => {
+): Promise<void> => {
   try {
-    const response = await apiClient.put(
-      `/v1/order/${orderId}/shipping-address`,
-      sanitizeAddress(address),
-    );
-    return response.data;
+    await apiClient.put(`/v1/order/${orderId}/shipping-address`, address);
   } catch (error) {
-    console.error(
-      `Error updating shipping address for order ${orderId}:`,
-      error,
-    );
+    console.error(`Error updating shipping address for order ${orderId}:`, error);
     throw error;
   }
 };

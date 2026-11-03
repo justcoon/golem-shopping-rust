@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Golem Shopping Assistant</title>
+    <link rel="stylesheet" href="/assistant/assets/assistant.css" />
+    <script type="module" src="/assistant/assets/assistant.js"></script>
+  </head>
+  <body>
+    <div class="app-layout">
+      <!-- Header -->
+      <header class="app-header">
+        <div class="header-brand">
+          <div class="brand-icon">🛍️</div>
+          <div>
+            <h1>Shopping Assistant</h1>
+            <p class="subtitle">Autonomous Agent · Powered by Golem</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <div class="user-control">
+            <label for="user-id">User ID:</label>
+            <input
+              id="user-id"
+              type="text"
+              value="user-1"
+              title="Customer identifier for cart and order state"
+              spellcheck="false"
+            />
+          </div>
+          <button id="clear-btn" class="btn btn-outline" title="Reset conversation history">
+            Clear History
+          </button>
+          <span id="agent-status" class="status-badge status-ready" role="status">Ready</span>
+        </div>
+      </header>
+
+      <!-- Main Container -->
+      <div class="main-container">
+        <!-- Chat Panel -->
+        <main class="chat-panel">
+          <div id="messages-container" class="messages-container" aria-live="polite">
+            <div id="welcome-message" class="welcome-box">
+              <div class="welcome-icon">✨</div>
+              <h2>Welcome to your Personal Shopping Assistant</h2>
+              <p>
+                I can help you search products, manage your cart, check order history, and complete
+                checkout. Ask me anything!
+              </p>
+              <div class="suggestion-chips">
+                <button class="chip" data-prompt="Find wireless noise-canceling headphones">
+                  🎧 Find headphones
+                </button>
+                <button class="chip" data-prompt="What products do you have from Apple?">
+                  🍎 Apple products
+                </button>
+                <button class="chip" data-prompt="What is currently in my cart?">
+                  🛒 View my cart
+                </button>
+                <button class="chip" data-prompt="Show my previous orders">
+                  📦 Order history
+                </button>
+              </div>
+            </div>
+            <!-- Messages rendered dynamically here -->
+          </div>
+
+          <!-- Input Bar -->
+          <footer class="input-panel">
+            <form id="chat-form" class="chat-form">
+              <textarea
+                id="message-input"
+                placeholder="Ask about products, cart, or orders... (Enter to send, Shift+Enter for newline)"
+                rows="1"
+                required
+              ></textarea>
+              <button id="send-btn" type="submit" class="btn btn-primary">
+                <span>Send</span>
+                <span class="send-icon">↑</span>
+              </button>
+            </form>
+          </footer>
+        </main>
+
+        <!-- Sidebar (Recommendations & Actions) -->
+        <aside class="sidebar-panel">
+          <section class="sidebar-section">
+            <h3>Quick Actions</h3>
+            <div class="quick-action-list">
+              <button class="action-btn" data-prompt="Show me flagship smartphones">
+                📱 Browse Smartphones
+              </button>
+              <button class="action-btn" data-prompt="What are the best deals right now?">
+                🏷️ Best Deals
+              </button>
+              <button class="action-btn" data-prompt="Clear my cart">
+                🗑️ Empty Cart
+              </button>
+              <button class="action-btn" data-prompt="I am ready to checkout my cart">
+                💳 Proceed to Checkout
+              </button>
+            </div>
+          </section>
+
+          <section id="recommendations-section" class="sidebar-section">
+            <h3>Recommended Items</h3>
+            <div id="recommendations-container" class="recommendations-list">
+              <p class="empty-state">Recommendations will appear as we talk.</p>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </div>
+  </body>
+</html>
+

@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import {useAssistantStore} from "@/stores/assistantStore.ts";
-import {useCartStore} from "@/stores/cartStore.ts";
+import { useAssistantStore } from "@/stores/assistantStore.ts";
+import { useCartStore } from "@/stores/cartStore.ts";
 
 export interface PricePreferences {
   currency: string;

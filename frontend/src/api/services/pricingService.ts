@@ -13,54 +13,43 @@ export interface SalePricingItem extends PricingItem {
 }
 
 export interface Pricing {
-  "product_id": string;
-  "msrp_prices": PricingItem[];
-  "list_prices": PricingItem[];
-  "sale_prices": SalePricingItem[];
-  "updated_at": DateTime;
+  product_id: string;
+  msrp_prices: PricingItem[];
+  list_prices: PricingItem[];
+  sale_prices: SalePricingItem[];
+  created_at: DateTime;
+  updated_at: DateTime;
 }
 
-export const getProductPricing = async (
-  productId: string,
-): Promise<Pricing> => {
+export const getProductPricing = async (productId: string): Promise<Pricing> => {
   try {
-    const response = await apiClient.get(`/v1/pricing/${productId}`);
-    return response;
+    return await apiClient.get(`/v1/pricing/${productId}`);
   } catch (error) {
     console.error(`Error fetching pricing for product ${productId}:`, error);
     throw error;
   }
 };
 
-export const getBatchPricing = async (
-  productIds: string[],
-): Promise<Record<string, Pricing>> => {
+export const getBatchPricing = async (productIds: string[]): Promise<Record<string, Pricing>> => {
   try {
-    // Make parallel requests for each product's pricing
     const pricingPromises = productIds.map(async (id) => {
       try {
         const pricing = await getProductPricing(id);
         return { id, pricing };
       } catch (error) {
         console.error(`Error fetching pricing for product ${id}:`, error);
-        return { id, pricing: null as any };
+        return { id, error };
       }
     });
 
-    // Wait for all requests to complete
     const results = await Promise.all(pricingPromises);
 
-    // Convert array of results to a record
-    return results.reduce<Record<string, Pricing>>(
-      (acc, { id, pricing }) => {
-        if (pricing) {
-          acc[id] = pricing;
-        }
-        // Skip products that had errors
-        return acc;
-      },
-      {},
-    );
+    return results.reduce<Record<string, Pricing>>((acc, { id, pricing }) => {
+      if (pricing) {
+        acc[id] = pricing;
+      }
+      return acc;
+    }, {});
   } catch (error) {
     console.error("Error in batch pricing operation:", error);
     throw error;
@@ -79,25 +68,18 @@ export const getCurrentSalePrices = (
   const now = new Date();
   const filterOptions =
     typeof options === "string"
-      ? { currency: options } // Backward compatibility for string currency
+      ? { currency: options }
       : options || {};
 
-  return pricing["sale_prices"].filter((sale) => {
+  return pricing.sale_prices.filter((sale) => {
     const start = sale.start ? dateTimeToDate(sale.start) : null;
     const end = sale.end ? dateTimeToDate(sale.end) : null;
     const matchesCurrency = filterOptions.currency
       ? sale.currency === filterOptions.currency
       : true;
-    const matchesRegion = filterOptions.region
-      ? sale.region === filterOptions.region
-      : true;
+    const matchesRegion = filterOptions.region ? sale.region === filterOptions.region : true;
 
-    return (
-      matchesCurrency &&
-      matchesRegion &&
-      (!start || now >= start) &&
-      (!end || now <= end)
-    );
+    return matchesCurrency && matchesRegion && (!start || now >= start) && (!end || now <= end);
   });
 };
 
@@ -107,25 +89,19 @@ export const getBestPrice = (
 ): number | null => {
   const filterOptions =
     typeof options === "string"
-      ? { currency: options } // Backward compatibility for string currency
+      ? { currency: options }
       : options || {};
 
   const salePrices = getCurrentSalePrices(pricing, filterOptions);
-  const listPrices = pricing["list_prices"].filter((p) => {
-    const matchesCurrency = filterOptions.currency
-      ? p.currency === filterOptions.currency
-      : true;
-    const matchesRegion = filterOptions.region
-      ? p.region === filterOptions.region
-      : true;
+  const listPrices = pricing.list_prices.filter((p) => {
+    const matchesCurrency = filterOptions.currency ? p.currency === filterOptions.currency : true;
+    const matchesRegion = filterOptions.region ? p.region === filterOptions.region : true;
     return matchesCurrency && matchesRegion;
   });
 
   if (salePrices.length > 0) {
-    // Get the lowest sale price
     return Math.min(...salePrices.map((p) => p.price));
   } else if (listPrices.length > 0) {
-    // Get the lowest list price if no active sales
     return Math.min(...listPrices.map((p) => p.price));
   }
 

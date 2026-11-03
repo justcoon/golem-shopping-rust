@@ -6,7 +6,9 @@ import { useAuthStore } from "@/stores/authStore";
 import { useAssistantStore } from "@/stores/assistantStore.ts";
 import ProductCard from "@/components/ProductCard.vue";
 import type { Product } from "@/api/services/productService.ts";
+import { useRouter } from "vue-router";
 
+const router = useRouter();
 const productStore = useProductStore();
 const cartStore = useCartStore();
 const authStore = useAuthStore();
@@ -18,14 +20,13 @@ const currentUserId = authStore.userId;
 // Fetch products when component mounts
 onMounted(async () => {
   if (productStore.products.length === 0) {
-    await productStore.search("", authStore.pricePreferences); // Empty search to get featured products
+    await productStore.search("", authStore.pricePreferences);
   }
   if (assistantStore.recommendedProducts.length === 0) {
     await assistantStore.fetchRecommendedProducts(authStore.pricePreferences);
   }
 });
 
-// Get featured products (first 4 products for the homepage)
 const featuredProducts = computed(() => {
   return productStore.products.slice(0, 4);
 });
@@ -36,13 +37,8 @@ const recommendedProducts = computed(() => {
 
 const isProductStoreLoading = computed(() => productStore.isLoading);
 const productStoreError = computed(() => productStore.error);
-
 const isAssistantStoreLoading = computed(() => assistantStore.isLoading);
-const assistantStoreError = computed(() =>  assistantStore.error);
-
-import { useRouter } from "vue-router";
-
-const router = useRouter();
+const assistantStoreError = computed(() => assistantStore.error);
 
 const addToCart = async (product: Product) => {
   if (!authStore.isAuthenticated) {
@@ -55,8 +51,7 @@ const addToCart = async (product: Product) => {
 
   try {
     isAddingToCart.value = true;
-    await cartStore.addItem(currentUserId, product["product_id"], 1);
-    // Show success message or notification
+    await cartStore.addItem(currentUserId, product.product_id, 1);
   } catch (err) {
     console.error("Error adding to cart:", err);
   } finally {
@@ -67,53 +62,88 @@ const addToCart = async (product: Product) => {
 
 <template>
   <div class="home-view">
-    <section class="hero">
-      <div class="container">
-        <div class="hero-content">
-          <h1>Welcome to Golem Shopping</h1>
-          <p class="lead">Discover amazing products at great prices</p>
+    <!-- Hero Section with Glowing Glass Card -->
+    <section class="hero-section container">
+      <div class="hero-card glass">
+        <div class="hero-badge">
+          <span class="badge-dot"></span>
+          <span>Powered by Golem Durable Agents</span>
+        </div>
+        <h1 class="hero-title">
+          The Future of <span class="gradient-text">Agentic Commerce</span>
+        </h1>
+        <p class="hero-lead">
+          Intelligent product discovery, real-time pricing calculation, and 1-click checkout powered
+          by autonomous AI agents.
+        </p>
+        <div class="hero-actions">
           <router-link to="/products" class="btn btn-primary btn-lg">
-            Shop Now
+            <span>Explore Catalog</span>
+            <span>→</span>
+          </router-link>
+          <router-link
+            v-if="authStore.isAuthenticated"
+            to="/assistant"
+            class="btn btn-outline btn-lg"
+          >
+            <span>🤖 AI Shopping Assistant</span>
           </router-link>
         </div>
       </div>
     </section>
 
-    <section class="featured-products">
-      <div class="container">
-        <h2 class="section-title">Featured Products</h2>
-        <div v-if="isProductStoreLoading" class="loading">Loading products...</div>
-        <div v-else-if="productStoreError" class="error">
-          Error loading products: {{ productStoreError.message }}
+    <!-- Featured Products -->
+    <section class="products-section container">
+      <div class="section-header">
+        <div>
+          <h2 class="gradient-text">Featured Products</h2>
+          <p class="section-subtitle">Top curated items across our inventory</p>
         </div>
-        <div v-else class="product-grid">
-          <ProductCard
-            v-for="product in featuredProducts"
-            :key="product['product_id']"
-            :product="product"
-            :is-adding-to-cart="isAddingToCart"
-            @add-to-cart="addToCart"
-          />
-        </div>
+        <router-link to="/products" class="view-all-link"> View all → </router-link>
+      </div>
+
+      <div v-if="isProductStoreLoading" class="loading-state glass">
+        <span class="spinner"></span>
+        <span>Loading catalog items...</span>
+      </div>
+      <div v-else-if="productStoreError" class="error-state glass">
+        ⚠️ Error loading products: {{ productStoreError.message }}
+      </div>
+      <div v-else class="product-grid">
+        <ProductCard
+          v-for="product in featuredProducts"
+          :key="product.product_id"
+          :product="product"
+          :is-adding-to-cart="isAddingToCart"
+          @add-to-cart="addToCart"
+        />
       </div>
     </section>
 
-    <section class="recommended-products">
-      <div class="container">
-        <h2 class="section-title">Recommended Products</h2>
-        <div v-if="isAssistantStoreLoading" class="loading">Loading products...</div>
-        <div v-else-if="assistantStoreError" class="error">
-          Error loading products: {{ assistantStoreError.message }}
+    <!-- Recommended Products (if available) -->
+    <section v-if="recommendedProducts.length > 0" class="products-section container">
+      <div class="section-header">
+        <div>
+          <h2 class="gradient-accent">Personalized For You</h2>
+          <p class="section-subtitle">Tailored recommendations based on your purchase history</p>
         </div>
-        <div v-else class="product-grid">
-          <ProductCard
-              v-for="product in recommendedProducts"
-              :key="product['product_id']"
-              :product="product"
-              :is-adding-to-cart="isAddingToCart"
-              @add-to-cart="addToCart"
-          />
-        </div>
+      </div>
+
+      <div v-if="isAssistantStoreLoading" class="loading-state glass">
+        <span class="spinner"></span>
+        <span>Generating AI recommendations...</span>
+      </div>
+      <div v-else-if="assistantStoreError" class="error-state glass">
+        ⚠️ {{ assistantStoreError.message }}
+      </div>
+      <div v-else class="product-grid">
+        <ProductCard
+          v-for="product in recommendedProducts"
+          :key="product.product_id"
+          :product="product"
+          :is-adding-to-cart="isAddingToCart"
+          @add-to-cart="addToCart"
+        />
       </div>
     </section>
   </div>
@@ -121,141 +151,150 @@ const addToCart = async (product: Product) => {
 
 <style scoped>
 .home-view {
-  min-height: calc(100vh - 200px);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
 }
 
-.hero {
-  background-color: var(--color-primary);
-  color: white;
-  padding: 4rem 0;
+.hero-section {
+  width: 100%;
+  padding-top: 10px;
+}
+
+.hero-card {
+  width: 100%;
+  padding: 60px 30px;
   text-align: center;
-  margin-bottom: 3rem;
+  background: radial-gradient(
+    circle at 50% 0%,
+    rgba(139, 92, 246, 0.2) 0%,
+    rgba(17, 24, 39, 0.75) 100%
+  );
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
 }
 
-.hero-content {
-  max-width: 800px;
-  margin: 0 auto;
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #c084fc;
+  margin-bottom: 20px;
 }
 
-.hero h1 {
-  font-size: 2.5rem;
-  margin-bottom: 1rem;
+.badge-dot {
+  width: 8px;
+  height: 8px;
+  background: #10b981;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #10b981;
 }
 
-.lead {
-  font-size: 1.25rem;
-  margin-bottom: 2rem;
-  opacity: 0.9;
+.hero-title {
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1.15;
+  margin-bottom: 16px;
 }
 
-.section-title {
-  text-align: center;
-  margin-bottom: 2rem;
-  font-size: 2rem;
-  color: var(--color-gray-800);
+.hero-lead {
+  font-size: 1.15rem;
+  color: var(--text-muted);
+  max-width: 650px;
+  margin: 0 auto 30px;
+  line-height: 1.6;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.products-section {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.section-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.view-all-link {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #c084fc;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.view-all-link:hover {
+  color: #e9d5ff;
 }
 
 .product-grid {
+  width: 100%;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 2rem;
-  padding: 1rem 0;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 22px;
 }
 
-.product-card {
-  background: white;
-  border-radius: var(--border-radius);
-  overflow: hidden;
-  box-shadow: var(--box-shadow-sm);
-  transition: var(--transition-base);
-  display: flex;
-  flex-direction: column;
-}
-
-.product-card:hover {
-  transform: translateY(-5px);
-  box-shadow: var(--box-shadow);
-}
-
-.product-image {
-  width: 100%;
-  height: 200px;
-  overflow: hidden;
-}
-
-.product-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 0.3s ease;
-}
-
-.product-card:hover .product-image img {
-  transform: scale(1.05);
-}
-
-.product-details {
-  padding: 1.25rem;
-  flex-grow: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.product-title {
-  font-size: 1.1rem;
-  margin-bottom: 0.5rem;
-}
-
-.product-title a {
-  color: var(--color-gray-900);
-  text-decoration: none;
-}
-
-.product-title a:hover {
-  color: var(--color-primary);
-  text-decoration: none;
-}
-
-.product-brand {
-  color: var(--color-gray-600);
-  font-size: 0.9rem;
-  margin-bottom: 0.5rem;
-}
-
-.product-price {
-  margin-top: 0.5rem;
-  font-weight: 600;
-  font-size: 1.25rem;
-  color: var(--color-primary);
-}
-
-.sale-price {
-  color: var(--color-danger);
-  font-weight: bold;
-  margin-right: 0.5rem;
-}
-
-.original-price {
-  text-decoration: line-through;
-  color: var(--color-gray-500);
-  font-size: 1rem;
-  font-weight: normal;
-}
-
-.loading,
-.error {
+.loading-state,
+.error-state {
+  padding: 30px;
   text-align: center;
-  padding: 2rem;
-  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted);
 }
 
-.error {
-  color: var(--color-danger);
+.error-state {
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.3);
 }
 
-.btn-lg {
-  padding: 0.75rem 1.5rem;
-  font-size: 1.1rem;
-  border-radius: var(--border-radius-lg);
+@media (max-width: 1100px) {
+  .product-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 820px) {
+  .product-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .hero-title {
+    font-size: 2.2rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .product-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

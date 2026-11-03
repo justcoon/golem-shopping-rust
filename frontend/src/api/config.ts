@@ -1,20 +1,11 @@
 import axios, { AxiosInstance, AxiosResponse } from "axios";
 
-// Create a typed API client that returns the data directly
-type ApiClient = AxiosInstance & {
-  <T = any>(config: any): Promise<T>;
-  get<T = any>(url: string, config?: any): Promise<T>;
-  post<T = any>(url: string, data?: any, config?: any): Promise<T>;
-  put<T = any>(url: string, data?: any, config?: any): Promise<T>;
-  delete<T = any>(url: string, config?: any): Promise<T>;
-};
-
-const apiClient: ApiClient = axios.create({
+const apiClient: AxiosInstance = axios.create({
   baseURL: "/api", // This will be proxied to http://golem-shopping.test.local
   headers: {
     "Content-Type": "application/json",
   },
-}) as ApiClient;
+});
 
 // Request interceptor
 apiClient.interceptors.request.use(

@@ -3,33 +3,33 @@ import type { Address } from "@/types/address";
 import { DateTime } from "@/types/datetime.ts";
 
 export interface CartItem {
-  "product_id": string;
-  "product_name": string;
-  "product_brand": string;
+  product_id: string;
+  product_name: string;
+  product_brand: string;
   price: number;
   quantity: number;
 }
 
 export interface Cart {
-  "user_id": string;
+  user_id: string;
   items: CartItem[];
   email?: string;
-  "billing_address"?: Address;
-  "shipping_address"?: Address;
+  billing_address?: Address;
+  shipping_address?: Address;
   total: number;
   currency: string;
-  "previous_order_ids": string[];
-  "updated_at": DateTime;
+  previous_order_ids: string[];
+  updated_at: DateTime;
 }
 
 export interface OrderConfirmation {
-  "order_id": string;
+  order_id: string;
+  user_id: string;
 }
 
 export const getCart = async (userId: string): Promise<Cart> => {
   try {
-    const response = await apiClient.get(`/v1/cart/${userId}`);
-    return response;
+    return await apiClient.get(`/v1/cart/${userId}`);
   } catch (error) {
     console.error(`Error fetching cart for user ${userId}:`, error);
     throw error;
@@ -49,10 +49,7 @@ export const addToCart = async (
   }
 };
 
-export const removeFromCart = async (
-  userId: string,
-  productId: string,
-): Promise<void> => {
+export const removeFromCart = async (userId: string, productId: string): Promise<void> => {
   try {
     await apiClient.delete(`/v1/cart/${userId}/items/${productId}`);
   } catch (error) {
@@ -61,10 +58,7 @@ export const removeFromCart = async (
   }
 };
 
-export const updateCartEmail = async (
-  userId: string,
-  email: string,
-): Promise<void> => {
+export const updateCartEmail = async (userId: string, email: string): Promise<void> => {
   try {
     await apiClient.put(`/v1/cart/${userId}/email`, { email });
   } catch (error) {
@@ -73,57 +67,27 @@ export const updateCartEmail = async (
   }
 };
 
-const sanitizeAddress = (address: Address): Address => {
-  const sanitized: Address = {
-    street: address.street,
-    city: address.city,
-    state_or_region: address.state_or_region,
-    country: address.country,
-    postal_code: address.postal_code,
-  };
-  if (address.name) sanitized.name = address.name;
-  if (address.phone_number) sanitized.phone_number = address.phone_number;
-  return sanitized;
-};
-
-export const updateBillingAddress = async (
-  userId: string,
-  address: Address,
-): Promise<Cart> => {
+export const updateBillingAddress = async (userId: string, address: Address): Promise<void> => {
   try {
-    const response = await apiClient.put(
-      `/v1/cart/${userId}/billing-address`,
-      sanitizeAddress(address),
-    );
-    return response;
+    await apiClient.put(`/v1/cart/${userId}/billing-address`, address);
   } catch (error) {
     console.error(`Error updating billing address for user ${userId}:`, error);
     throw error;
   }
 };
 
-export const updateShippingAddress = async (
-  userId: string,
-  address: Address,
-): Promise<Cart> => {
+export const updateShippingAddress = async (userId: string, address: Address): Promise<void> => {
   try {
-    const response = await apiClient.put(
-      `/v1/cart/${userId}/shipping-address`,
-      sanitizeAddress(address),
-    );
-    return response;
+    await apiClient.put(`/v1/cart/${userId}/shipping-address`, address);
   } catch (error) {
     console.error(`Error updating shipping address for user ${userId}:`, error);
     throw error;
   }
 };
 
-export const checkoutCart = async (
-  userId: string,
-): Promise<OrderConfirmation> => {
+export const checkoutCart = async (userId: string): Promise<OrderConfirmation> => {
   try {
-    const response = await apiClient.post(`/v1/cart/${userId}/checkout`, {});
-    return response;
+    return await apiClient.post(`/v1/cart/${userId}/checkout`, {});
   } catch (error) {
     console.error("Error during checkout:", error);
     throw error;
