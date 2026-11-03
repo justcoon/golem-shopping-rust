@@ -1,10 +1,13 @@
 use crate::ai::schema::{
-    AgentConfig, ChatChunk, ChatMessage, ChatMessageType, ChatResponse, ChatRole, ToolCallRecord,
+    AgentConfig, ChatChunk, ChatMessage, ChatMessageType, ChatResponse, ChatRole, ClientMessage,
+    ToolCallRecord,
 };
-use golem_rust::agentic::{AgentStream, Config, spawn_local};
+use golem_rust::agentic::{AgentStream, AgentStreamWriter, Config, spawn_local};
 use golem_rust::http::{self, Request};
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::future::Future;
+use std::rc::Rc;
 
 pub const MAX_LOOP_TURNS: usize = 10;
 
@@ -138,18 +141,6 @@ impl ChatTurnResult {
             }),
         }
     }
-
-    pub fn to_stream(self) -> AgentStream<ChatChunk> {
-        let (mut writer, stream) = AgentStream::new();
-        spawn_local(async move {
-            for chunk in self.chunks {
-                if writer.write_one(chunk).await.is_err() {
-                    break;
-                }
-            }
-        });
-        stream
-    }
 }
 
 pub async fn process_chat_turn<D: ToolDispatcher>(
@@ -213,6 +204,86 @@ pub async fn process_chat_turn<D: ToolDispatcher>(
     result
 }
 
+pub fn process_chat_session<D: ToolDispatcher + 'static>(
+    config: &Config<AgentConfig>,
+    messages: Rc<RefCell<Vec<ChatMessage>>>,
+    mut input: AgentStream<ClientMessage>,
+    system_prompt: &'static str,
+    tools: Vec<ToolSpec>,
+    missing_key_hint: &'static str,
+    dispatcher: D,
+) -> AgentStream<ChatChunk> {
+    let (mut writer, output) = AgentStream::new();
+    let (api_key, model, api_url) = match config.get() {
+        Ok(cfg) => (
+            cfg.llm.api_key.get().unwrap_or_default(),
+            cfg.llm.model.get().unwrap_or_default(),
+            cfg.llm.api_url.clone(),
+        ),
+        Err(_) => (String::new(), String::new(), None),
+    };
+
+    spawn_local(async move {
+        while let Ok(Some(client_msg)) = input.next().await {
+            let user_text = client_msg.message.trim().to_string();
+            if user_text.is_empty() {
+                continue;
+            }
+
+            let mut sink = AgentStreamChunkSink {
+                writer: &mut writer,
+            };
+            let history = messages.borrow().clone();
+            let result = execute_agent_chat_turn_internal(
+                system_prompt,
+                &tools,
+                &api_key,
+                &model,
+                api_url.as_deref(),
+                &history,
+                &user_text,
+                Some(missing_key_hint),
+                &dispatcher,
+                &mut sink,
+            )
+            .await;
+
+            let now = chrono::Utc::now().to_rfc3339();
+            let user_msg = ChatMessage {
+                role: ChatRole::User,
+                content: user_text,
+                tool_calls: None,
+                timestamp: now.clone(),
+                r#type: Some(ChatMessageType::Ok),
+            };
+            let mut updated = messages.borrow().clone();
+            updated.push(user_msg);
+
+            let assistant_text = result.reply;
+            let used_tools = result.tool_calls_used;
+            let is_err = result.is_error;
+            updated.push(ChatMessage {
+                role: ChatRole::Assistant,
+                content: assistant_text,
+                tool_calls: if used_tools.is_empty() {
+                    None
+                } else {
+                    Some(used_tools)
+                },
+                timestamp: now,
+                r#type: Some(if is_err {
+                    ChatMessageType::Error
+                } else {
+                    ChatMessageType::Ok
+                }),
+            });
+            *messages.borrow_mut() = updated;
+        }
+    });
+
+    output
+}
+
 pub fn resolve_endpoint_url(model: &str, api_url: Option<&str>) -> String {
     let normalized = api_url
         .map(|u| {
@@ -238,6 +309,25 @@ pub fn resolve_endpoint_url(model: &str, api_url: Option<&str>) -> String {
     }
 }
 
+pub trait ChunkSink {
+    fn emit(&mut self, chunk: ChatChunk) -> impl Future<Output = ()>;
+}
+
+pub struct NoopChunkSink;
+impl ChunkSink for NoopChunkSink {
+    async fn emit(&mut self, _chunk: ChatChunk) {}
+}
+
+pub struct AgentStreamChunkSink<'a> {
+    pub writer: &'a mut AgentStreamWriter<ChatChunk>,
+}
+
+impl ChunkSink for AgentStreamChunkSink<'_> {
+    async fn emit(&mut self, chunk: ChatChunk) {
+        let _ = self.writer.write_one(chunk).await;
+    }
+}
+
 pub trait ToolDispatcher {
     fn execute(&self, name: &str, arguments: &str) -> impl Future<Output = (String, String)>;
 }
@@ -254,25 +344,56 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
     missing_api_key_message: Option<&str>,
     dispatcher: &D,
 ) -> ChatTurnResult {
+    let mut sink = NoopChunkSink;
+    execute_agent_chat_turn_internal(
+        system_prompt,
+        tools,
+        api_key,
+        model,
+        api_url,
+        history,
+        user_message,
+        missing_api_key_message,
+        dispatcher,
+        &mut sink,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn execute_agent_chat_turn_internal<D: ToolDispatcher, S: ChunkSink>(
+    system_prompt: &str,
+    tools: &[ToolSpec],
+    api_key: &str,
+    model: &str,
+    api_url: Option<&str>,
+    history: &[ChatMessage],
+    user_message: &str,
+    missing_api_key_message: Option<&str>,
+    dispatcher: &D,
+    sink: &mut S,
+) -> ChatTurnResult {
     let trimmed_key = api_key.trim();
     if trimmed_key.is_empty() {
         let msg = missing_api_key_message.unwrap_or(
             "AI agent is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
         );
+        let c1 = ChatChunk::TextDelta {
+            content: msg.to_string(),
+        };
+        let c2 = ChatChunk::Error {
+            content: msg.to_string(),
+        };
+        let c3 = ChatChunk::Done {
+            content: String::new(),
+        };
+        sink.emit(c1.clone()).await;
+        sink.emit(c2.clone()).await;
+        sink.emit(c3.clone()).await;
         return ChatTurnResult {
             reply: msg.to_string(),
             tool_calls_used: Vec::new(),
-            chunks: vec![
-                ChatChunk::TextDelta {
-                    content: msg.to_string(),
-                },
-                ChatChunk::Error {
-                    content: msg.to_string(),
-                },
-                ChatChunk::Done {
-                    content: String::new(),
-                },
-            ],
+            chunks: vec![c1, c2, c3],
             is_error: true,
         };
     }
@@ -348,6 +469,14 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
     let mut accumulated_tool_calls: Vec<ToolCallRecord> = Vec::new();
     let mut chunks: Vec<ChatChunk> = Vec::new();
 
+    macro_rules! emit {
+        ($chunk:expr) => {{
+            let c = $chunk;
+            sink.emit(c.clone()).await;
+            chunks.push(c);
+        }};
+    }
+
     for turn in 0..MAX_LOOP_TURNS {
         let request_payload = OpenAiChatRequest {
             model: model.to_string(),
@@ -359,13 +488,13 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
             Ok(b) => b,
             Err(e) => {
                 let err_msg = format!("Failed to serialize chat request: {e}");
-                chunks.push(ChatChunk::TextDelta {
+                emit!(ChatChunk::TextDelta {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Error {
+                emit!(ChatChunk::Error {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Done {
+                emit!(ChatChunk::Done {
                     content: String::new(),
                 });
                 return ChatTurnResult {
@@ -388,13 +517,13 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
             Ok(req) => req,
             Err(e) => {
                 let err_msg = format!("Failed to build HTTP request: {e}");
-                chunks.push(ChatChunk::TextDelta {
+                emit!(ChatChunk::TextDelta {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Error {
+                emit!(ChatChunk::Error {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Done {
+                emit!(ChatChunk::Done {
                     content: String::new(),
                 });
                 return ChatTurnResult {
@@ -412,13 +541,13 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
             Ok(resp) => resp,
             Err(e) => {
                 let err_msg = format!("AI service network request failed: {e}");
-                chunks.push(ChatChunk::TextDelta {
+                emit!(ChatChunk::TextDelta {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Error {
+                emit!(ChatChunk::Error {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Done {
+                emit!(ChatChunk::Done {
                     content: String::new(),
                 });
                 return ChatTurnResult {
@@ -435,13 +564,13 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
             Ok(b) => b,
             Err(e) => {
                 let err_msg = format!("Failed to read AI response body: {e}");
-                chunks.push(ChatChunk::TextDelta {
+                emit!(ChatChunk::TextDelta {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Error {
+                emit!(ChatChunk::Error {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Done {
+                emit!(ChatChunk::Done {
                     content: String::new(),
                 });
                 return ChatTurnResult {
@@ -461,13 +590,13 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
                 .and_then(|e| e.message)
                 .unwrap_or_else(|| body_str.to_string());
             let err_msg = format!("AI service error (HTTP {status}): {err_detail}");
-            chunks.push(ChatChunk::TextDelta {
+            emit!(ChatChunk::TextDelta {
                 content: err_msg.clone(),
             });
-            chunks.push(ChatChunk::Error {
+            emit!(ChatChunk::Error {
                 content: err_msg.clone(),
             });
-            chunks.push(ChatChunk::Done {
+            emit!(ChatChunk::Done {
                 content: String::new(),
             });
             return ChatTurnResult {
@@ -483,13 +612,13 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
             Err(e) => {
                 let body_str = String::from_utf8_lossy(&body_bytes);
                 let err_msg = format!("Failed to parse AI response JSON: {e} (body: {body_str})");
-                chunks.push(ChatChunk::TextDelta {
+                emit!(ChatChunk::TextDelta {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Error {
+                emit!(ChatChunk::Error {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Done {
+                emit!(ChatChunk::Done {
                     content: String::new(),
                 });
                 return ChatTurnResult {
@@ -505,13 +634,13 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
             Some(c) => c,
             None => {
                 let err_msg = "AI service returned empty response choices".to_string();
-                chunks.push(ChatChunk::TextDelta {
+                emit!(ChatChunk::TextDelta {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Error {
+                emit!(ChatChunk::Error {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Done {
+                emit!(ChatChunk::Done {
                     content: String::new(),
                 });
                 return ChatTurnResult {
@@ -527,13 +656,13 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
             Some(m) => m,
             None => {
                 let err_msg = "AI choice did not contain a message".to_string();
-                chunks.push(ChatChunk::TextDelta {
+                emit!(ChatChunk::TextDelta {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Error {
+                emit!(ChatChunk::Error {
                     content: err_msg.clone(),
                 });
-                chunks.push(ChatChunk::Done {
+                emit!(ChatChunk::Done {
                     content: String::new(),
                 });
                 return ChatTurnResult {
@@ -576,7 +705,7 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
                     result: String::new(),
                 };
 
-                chunks.push(ChatChunk::ToolStart {
+                emit!(ChatChunk::ToolStart {
                     content: format!("Executing {tool_name}..."),
                     tool_call: start_record,
                 });
@@ -591,7 +720,7 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
                     result: result_str.clone(),
                 };
 
-                chunks.push(ChatChunk::ToolResult {
+                emit!(ChatChunk::ToolResult {
                     content: summary,
                     tool_call: end_record.clone(),
                 });
@@ -609,10 +738,10 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
             }
         } else {
             let final_reply = message.content.unwrap_or_default();
-            chunks.push(ChatChunk::TextDelta {
+            emit!(ChatChunk::TextDelta {
                 content: final_reply.clone(),
             });
-            chunks.push(ChatChunk::Done {
+            emit!(ChatChunk::Done {
                 content: String::new(),
             });
 
@@ -626,13 +755,13 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
     }
 
     let limit_msg = "AI loop reached maximum tool call iterations without finishing.".to_string();
-    chunks.push(ChatChunk::TextDelta {
+    emit!(ChatChunk::TextDelta {
         content: limit_msg.clone(),
     });
-    chunks.push(ChatChunk::Error {
+    emit!(ChatChunk::Error {
         content: limit_msg.clone(),
     });
-    chunks.push(ChatChunk::Done {
+    emit!(ChatChunk::Done {
         content: String::new(),
     });
 

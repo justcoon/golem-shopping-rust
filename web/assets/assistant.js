@@ -5,6 +5,7 @@ import {
   escapeHtml,
   formatTime,
   normalizeChunk,
+  normalizeMessage,
   normalizeToolCall,
   renderMarkdown,
 } from "./chat-common.js";
@@ -16,11 +17,25 @@ import {
 
 // State
 let currentUserId = localStorage.getItem("golem_shopping_userId") || "user-1";
+let currentChatId = localStorage.getItem("golem_shopping_chatId") || "default";
 let isSending = false;
 let currentEventSource = null;
+let activeChatSession = null;
+
+function closeChatSession() {
+  if (activeChatSession) {
+    if (activeChatSession.eventSource) {
+      activeChatSession.eventSource.close();
+    }
+    fetch(activeChatSession.sessionPath, { method: "DELETE" }).catch(() => {});
+    activeChatSession = null;
+  }
+}
 
 // DOM Elements
 const userIdInput = /** @type {HTMLInputElement} */ (document.getElementById("user-id"));
+const chatIdSelect = /** @type {HTMLSelectElement} */ (document.getElementById("chat-id"));
+const newChatBtn = /** @type {HTMLButtonElement} */ (document.getElementById("new-chat-btn"));
 const messagesContainer = document.getElementById("messages-container");
 const welcomeMessage = document.getElementById("welcome-message");
 const chatForm = document.getElementById("chat-form");
@@ -36,12 +51,83 @@ userIdInput.value = currentUserId;
 userIdInput.addEventListener("change", () => {
   const newId = userIdInput.value.trim() || "user-1";
   if (newId !== currentUserId) {
+    closeChatSession();
     currentUserId = newId;
     localStorage.setItem("golem_shopping_userId", currentUserId);
-    loadHistory();
-    loadRecommendations();
+    loadChats().then(() => {
+      loadHistory();
+      loadRecommendations();
+    });
   }
 });
+
+if (chatIdSelect) {
+  chatIdSelect.addEventListener("change", () => {
+    const newChat = chatIdSelect.value || "default";
+    if (newChat !== currentChatId) {
+      closeChatSession();
+      currentChatId = newChat;
+      localStorage.setItem("golem_shopping_chatId", currentChatId);
+      messagesContainer.innerHTML = "";
+      if (welcomeMessage) {
+        messagesContainer.appendChild(welcomeMessage);
+        welcomeMessage.style.display = "block";
+      }
+      loadHistory();
+    }
+  });
+}
+
+if (newChatBtn) {
+  newChatBtn.addEventListener("click", async () => {
+    try {
+      const res = await fetch(`/v1/assistant/${encodeURIComponent(currentUserId)}/chats`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        currentChatId = created.chat_id;
+        localStorage.setItem("golem_shopping_chatId", currentChatId);
+        await loadChats();
+        closeChatSession();
+        messagesContainer.innerHTML = "";
+        if (welcomeMessage) {
+          messagesContainer.appendChild(welcomeMessage);
+          welcomeMessage.style.display = "block";
+        }
+        await loadHistory();
+      }
+    } catch (err) {
+      console.error("Failed to create new chat:", err);
+    }
+  });
+}
+
+async function loadChats() {
+  if (!chatIdSelect) return;
+  try {
+    const res = await fetch(`/v1/assistant/${encodeURIComponent(currentUserId)}/chats`);
+    if (!res.ok) return;
+    const chats = await res.json();
+    if (Array.isArray(chats) && chats.length > 0) {
+      chatIdSelect.innerHTML = "";
+      for (const c of chats) {
+        const opt = document.createElement("option");
+        opt.value = c.chat_id;
+        opt.textContent = c.title || c.chat_id;
+        chatIdSelect.appendChild(opt);
+      }
+      if (!chats.some((c) => c.chat_id === currentChatId)) {
+        currentChatId = chats[0].chat_id;
+      }
+      chatIdSelect.value = currentChatId;
+    }
+  } catch (err) {
+    console.warn("Could not load chats:", err);
+  }
+}
 
 // Auto-grow textarea
 messageInput.addEventListener("input", () => {
@@ -74,8 +160,9 @@ clearBtn.addEventListener("click", async () => {
   if (!confirm(`Clear all conversation history for ${currentUserId}?`)) return;
 
   try {
+    closeChatSession();
     setStatus("busy", "Clearing...");
-    const res = await fetch(`/v1/assistant/${encodeURIComponent(currentUserId)}/clear-history`, {
+    const res = await fetch(`/v1/assistant/${encodeURIComponent(currentUserId)}/chats/${encodeURIComponent(currentChatId)}/clear-history`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
@@ -253,112 +340,148 @@ async function sendMessage(message) {
   let receivedAnyText = false;
 
   try {
-    // 1. Attempt streaming via Durable Streams
-    const sessionRes = await fetch(
-      `/v1/assistant/${encodeURIComponent(currentUserId)}/chat-stream`,
-      {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Stream-TTL": "300",
-        },
-        body: JSON.stringify({ message }),
-      },
-    );
-
-    if (!sessionRes.ok) {
-      throw new Error(`Stream session init failed with status ${sessionRes.status}`);
-    }
-
-    let sessionPath = sessionRes.headers.get("Location");
-    if (!sessionPath) {
-      throw new Error("Missing Location header in stream response");
-    }
-
-    if (sessionPath.startsWith("http://") || sessionPath.startsWith("https://")) {
-      sessionPath = new URL(sessionPath).pathname;
-    }
-
-    // Connect EventSource to $result stream
-    const slotUrl = `${sessionPath}/streams/%24result?live=sse&offset=-1`;
-    await new Promise((resolve, reject) => {
-      const es = new EventSource(slotUrl);
-      currentEventSource = es;
-
-      es.onmessage = (event) => {
-        try {
-          if (!event.data) return;
-          const rawChunk = JSON.parse(event.data);
-          const chunk = normalizeChunk(rawChunk);
-          if (!chunk) return;
-
-          if (chunk.tag === "text_delta") {
-            receivedAnyText = true;
-            bubble.appendText(chunk.delta || "");
-          } else if (chunk.tag === "tool_start") {
-            const tc = chunk.toolCall;
-            if (tc) {
-              const card = document.createElement("div");
-              card.className = "tool-card running";
-              card.innerHTML = `
-                <span class="tool-spinner"></span>
-                <span>Executing <strong>${escapeHtml(tc.toolName || "tool")}</strong>...</span>
-              `;
-              bubble.toolCardsContainer.appendChild(card);
-              bubble.toolCards.set(tc.id, card);
-              bubble.updateToolCount();
-              scrollToBottom();
+    // 1. Attempt persistent bi-directional session streaming
+    let session = activeChatSession;
+    if (!session) {
+      try {
+        const sessionRes = await fetch(
+          `/v1/assistant/${encodeURIComponent(currentUserId)}/chats/${encodeURIComponent(currentChatId)}/chat-session`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              "Stream-TTL": "600",
+            },
+            body: JSON.stringify({}),
+          },
+        );
+        if (sessionRes.ok) {
+          let loc = sessionRes.headers.get("Location");
+          if (loc) {
+            if (loc.startsWith("http://") || loc.startsWith("https://")) {
+              loc = new URL(loc).pathname;
             }
-          } else if (chunk.tag === "tool_result") {
-            const tc = chunk.toolCall;
-            if (tc && bubble.toolCards.has(tc.id)) {
-              const card = bubble.toolCards.get(tc.id);
-              let summary = "Completed";
+            const outboxUrl = `${loc}/streams/outbox?live=sse&offset=-1`;
+            const es = new EventSource(outboxUrl);
+            currentEventSource = es;
+            session = {
+              sessionPath: loc,ManagerAgent
+              eventSource: es,
+              activeBubble: null,
+              activeTurn: null,
+            };
+            activeChatSession = session;
+
+            es.onmessage = (event) => {
               try {
-                const resObj = typeof tc.result === "string" ? JSON.parse(tc.result) : tc.result;
-                summary = resObj.summary || (resObj.error ? `Failed: ${resObj.error}` : "Done");
-              } catch {
-                summary = String(tc.result);
-              }
-              const isFailed = summary.toLowerCase().includes("failed");
-              card.className = `tool-card ${isFailed ? "failed" : "completed"}`;
-              card.innerHTML = `
-                <span>${isFailed ? "⚠️" : "✅"}</span>
-                <span><strong>${escapeHtml(tc.toolName || "tool")}:</strong> ${escapeHtml(summary)}</span>
-              `;
-              scrollToBottom();
-            }
-          } else if (chunk.tag === "done") {
-            es.close();
-            currentEventSource = null;
-            resolve(undefined);
-          } else if (chunk.tag === "error") {
-            es.close();
-            currentEventSource = null;
-            reject(new Error(chunk.error || "Stream returned error"));
-          }
-        } catch (parseErr) {
-          console.warn("Error parsing stream chunk:", parseErr);
-        }
-      };
+                if (!event.data) return;
+                const rawChunk = JSON.parse(event.data);
+                const chunk = normalizeChunk(rawChunk);
+                if (!chunk) return;
+                const currentBubble = session.activeBubble;
 
-      es.onerror = (err) => {
-        es.close();
-        currentEventSource = null;
-        if (receivedAnyText) {
-          // Stream interrupted but we received partial output
-          resolve(undefined);
-        } else {
-          reject(err);
+                if (chunk.tag === "text_delta" && currentBubble) {
+                  receivedAnyText = true;
+                  currentBubble.appendText(chunk.delta || "");
+                } else if (chunk.tag === "tool_start" && currentBubble) {
+                  const tc = chunk.toolCall;
+                  if (tc) {
+                    const card = document.createElement("div");
+                    card.className = "tool-card running";
+                    card.innerHTML = `
+                      <span class="tool-spinner"></span>
+                      <span>Executing <strong>${escapeHtml(tc.toolName || "tool")}</strong>...</span>
+                    `;
+                    currentBubble.toolCardsContainer.appendChild(card);
+                    currentBubble.toolCards.set(tc.id, card);
+                    currentBubble.updateToolCount();
+                    scrollToBottom();
+                  }
+                } else if (chunk.tag === "tool_result" && currentBubble) {
+                  const tc = chunk.toolCall;
+                  if (tc && currentBubble.toolCards.has(tc.id)) {
+                    const card = currentBubble.toolCards.get(tc.id);
+                    let summary = "Completed";
+                    try {
+                      const resObj = typeof tc.result === "string" ? JSON.parse(tc.result) : tc.result;
+                      summary = resObj.summary || (resObj.error ? `Failed: ${resObj.error}` : "Done");
+                    } catch {
+                      summary = String(tc.result);
+                    }
+                    const isFailed = summary.toLowerCase().includes("failed");
+                    card.className = `tool-card ${isFailed ? "failed" : "completed"}`;
+                    card.innerHTML = `
+                      <span>${isFailed ? "⚠️" : "✅"}</span>
+                      <span><strong>${escapeHtml(tc.toolName || "tool")}:</strong> ${escapeHtml(summary)}</span>
+                    `;
+                    scrollToBottom();
+                  }
+                } else if (chunk.tag === "done") {
+                  if (session.activeTurn) {
+                    const resolve = session.activeTurn.resolve;
+                    session.activeTurn = null;
+                    resolve(undefined);
+                  }
+                } else if (chunk.tag === "error") {
+                  if (session.activeTurn) {
+                    const reject = session.activeTurn.reject;
+                    session.activeTurn = null;
+                    reject(new Error(chunk.error || "Stream returned error"));
+                  }
+                }
+              } catch (parseErr) {
+                console.warn("Error parsing session stream chunk:", parseErr);
+              }
+            };
+
+            es.onerror = (err) => {
+              if (session.activeTurn) {
+                const reject = session.activeTurn.reject;
+                session.activeTurn = null;
+                reject(err);
+              }
+              closeChatSession();
+            };
+          }
         }
-      };
-    });
+      } catch (sessionInitErr) {
+        console.warn("Bi-directional chat session init failed, will use sync chat fallback:", sessionInitErr);
+      }
+    }
+
+    if (session) {
+      session.activeBubble = bubble;
+      await new Promise(async (resolve, reject) => {
+        session.activeTurn = { resolve, reject };
+        const inboxUrl = `${session.sessionPath}/streams/inbox`;
+        try {
+          const postRes = await fetch(inboxUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message }),
+          });
+          if (!postRes.ok) {
+            session.activeTurn = null;
+            reject(new Error(`Inbox POST failed: ${postRes.status}`));
+          }
+        } catch (postErr) {
+          session.activeTurn = null;
+          reject(postErr);
+        }
+      });
+      return;
+    }
+
+    throw new Error("No active chat session available");
   } catch (streamErr) {
     console.warn("Streaming unavailable or interrupted, falling back to sync chat:", streamErr);
+    closeChatSession();
 
-    // Fallback: synchronous POST /v1/assistant/{userId}/chat
+    // Fallback: synchronous POST /v1/assistant/{userId}/chats/{chatId}/chat
     try {
-      const syncRes = await fetch(`/v1/assistant/${encodeURIComponent(currentUserId)}/chat`, {
+      const syncRes = await fetch(
+        `/v1/assistant/${encodeURIComponent(currentUserId)}/chats/${encodeURIComponent(currentChatId)}/chat`,
+        {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
@@ -416,7 +539,9 @@ async function sendMessage(message) {
  */
 async function loadHistory() {
   try {
-    const res = await fetch(`/v1/assistant/${encodeURIComponent(currentUserId)}/history`);
+    const res = await fetch(
+      `/v1/assistant/${encodeURIComponent(currentUserId)}/chats/${encodeURIComponent(currentChatId)}/history`,
+    );
     if (!res.ok) return;
 
     const history = await res.json();
@@ -429,7 +554,10 @@ async function loadHistory() {
     messagesContainer.innerHTML = "";
 
     let lastPrompt = "";
-    for (const msg of history) {
+    for (const rawMsg of history) {
+      const msg = normalizeMessage(rawMsg);
+      if (!msg) continue;
+
       if (msg.role === "user") {
         lastPrompt = msg.content;
         appendUserMessage(msg.content, msg.timestamp);
@@ -437,8 +565,11 @@ async function loadHistory() {
         const bubble = createAssistantBubble(lastPrompt, msg.timestamp);
         bubble.setText(msg.content || "");
         if (bubble.cursor) bubble.cursor.remove();
+        if (msg.isError) {
+          bubble.showRetry();
+        }
 
-        const toolCalls = msg.toolCalls || msg.tool_calls;
+        const toolCalls = msg.toolCalls;
         if (Array.isArray(toolCalls) && toolCalls.length > 0) {
           for (const rawTc of toolCalls) {
             const tc = normalizeToolCall(rawTc);
@@ -501,5 +632,7 @@ function scrollToBottom() {
 }
 
 // Initial load
-loadHistory();
+loadChats().then(() => {
+  loadHistory();
+});
 loadRecommendations();

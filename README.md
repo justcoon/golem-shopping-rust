@@ -1,7 +1,7 @@
 # golem-shopping-rust
 
 ## Overview
-This is a simple e-commerce application built with an agent-based architecture, leveraging Golem Cloud for distributed, stateful agents. The application provides a complete online shopping experience with product browsing, cart management, order processing, and an AI-powered shopping assistant.
+This is a modern e-commerce application built with an agent-based architecture, leveraging Golem Cloud for distributed, stateful WebAssembly agents. The application provides an end-to-end online shopping experience featuring product browsing, inventory reservations, cart management, order lifecycle handling, an AI-powered conversational shopping assistant, and an operations store manager.
 
 ![Architecture Diagram](architecture.png)
 
@@ -10,50 +10,87 @@ This is a simple e-commerce application built with an agent-based architecture, 
 ## Architecture Components
 
 ### Agents
-- **Product Agent**: Manages the product catalog and product-related operations.
-- **Pricing Agent**: Handles product pricing, discounts, and promotions.
-- **Inventory Agent**: Manages regional product stock, order reservations, and stock fulfillment.
-- **Cart Agent**: Manages user shopping carts, cart-to-order conversion, saved contact details, and past order history.
-- **Order Agent**: Manages the complete order lifecycle from creation to fulfillment.
-- **Product Search Agent**: Provides product search and batch lookup capabilities with active prices and stock.
-- **Order Search Agent**: Provides order search and discovery across customers and statuses.
-- **Shopping Assistant Agent**: AI-powered assistant that helps users find products and manage their shopping experience.
+
+#### Commerce Agents (Stateful)
+- **Product Agent**: Manages individual product catalog details, attributes, and descriptions (`/v1/product/{id}`).
+- **Pricing Agent**: Handles product base pricing, regional discounts, and promotional rules (`/v1/pricing/{id}`).
+- **Inventory Agent**: Manages regional product stock levels, reservation allocations for pending orders, and inventory adjustments/fulfillments (`/v1/inventory/{id}`).
+- **Cart Agent**: Manages user shopping carts, cart-to-order checkout conversion, saved contact details, and past order history (`/v1/cart/{id}`).
+- **Order Agent**: Manages the complete order lifecycle from creation through fulfillment, status updates, and inventory synchronization (`/v1/order/{id}`).
+
+#### Search Agents (Ephemeral)
+- **Product Search Agent**: Provides catalog-wide search, filtering, and batch lookups enriched with live prices and stock availability (`/v1/product/search`).
+- **Order Search Agent**: Provides cross-customer order search, filtering, and discovery by status or date range (`/v1/order-search/**`).
+
+#### AI Assistants (Two-Tier Multi-Thread Architecture)
+- **Shopping Assistant Workspace Agent (`ShoppingAssistantAgent`)**: Per-user workspace agent (`/v1/assistant/{user_id}`). Manages the catalog of conversation threads (`/chats`), user-level cached recommendations (`/recommended-items`), and backwards-compatible proxies.
+- **Shopping Assistant Chat Agent (`ShoppingAssistantChatAgent`)**: Discrete conversation thread actor (`/v1/assistant/{user_id}/chats/{chat_id}`). Equipped with 16 domain tools for product search, price lookup, stock availability checking, cart manipulation, checkout, and order status inquiry. Supports real-time bi-directional streaming via **Golem Durable Streams** (`/chat-session`) and non-streaming (`/chat`) without blocking the parent assistant or other threads.
+- **Manager Workspace Agent (`ManagerAgent`)**: Per-manager workspace agent (`/v1/manager/{manager_id}`). Manages the list of operational threads (`/chats`) and store management state.
+- **Manager Chat Agent (`ManagerChatAgent`)**: Discrete operational thread actor (`/v1/manager/{manager_id}/chats/{chat_id}`). Enables store managers to query order histories, update order statuses, inspect and adjust inventory levels, and update product pricing using conversational AI and Golem Durable Streams.
+
+#### Static Web Agents (Ephemeral)
+- **Web Assistant & Web Manager**: Lightweight WASM agents serving the embedded HTML/JS web chat interfaces from Golem's virtual filesystem (`/assistant` and `/manager`).
+
+### Frontend Applications
+- **Vue 3 SPA (`frontend/`)**: Modern Single Page Application built with Vue 3, TypeScript, Pinia, Tailwind CSS, and Vite. Implements full product browsing, cart management, checkout, order history, and an interactive chat assistant with Golem Durable Streams support. Strictly conforms to `snake_case` API contracts.
+- **Embedded Web Chat (`web/`)**: Self-contained static web interfaces for the Shopping Assistant and Store Manager, served directly by Golem agents.
 
 ### Key Features
-- **RESTful API** for all shopping operations
-- **Stateful Agents** with Golem Cloud managing the state
-- **AI Integration** with external LLM service for the shopping assistant
-- **Distributed Agent System** with clear responsibility boundaries
+- **RESTful API & Streaming**: Standard REST API for shopping operations combined with bi-directional streaming powered by **Golem Durable Streams** (`inbox`/`outbox` slots) for conversational AI.
+- **Durable Execution & State Persistence**: All stateful agents automatically persist state and execution history across restarts and failures without requiring external database boilerplate.
+- **AI Integration**: Powered by external LLM services (defaults to Google Gemini API `gemini-3.1-flash-lite` with thought signature preservation for tool calls; also supports OpenRouter).
+- **Agent-to-Agent RPC**: Type-safe inter-agent communication across boundaries.
 
-### Communication Flow
-1. Users interact with the system through the API Gateway
-2. The gateway routes requests to the appropriate agents
-3. Agents communicate via RPC calls as needed
-4. An external AI/LLM service enhances the Shopping Assistant's capabilities
-
-### State Management
-All core agents (Product, Pricing, Inventory, Cart, Order, and Shopping Assistant) have their state managed by Golem Cloud, ensuring reliability and scalability through the agent-based architecture.
-
+---
 
 ## Quick Start
 
-1. **Prerequisites**:
-    - Install [Golem CLI](https://learn.golem.cloud/cli) (version 1.6.1+)
-    - [Running Golem Environment](https://learn.golem.cloud/quickstart#running-golem)
+### 1. Prerequisites
+- **Rust** with `wasm32-wasip2` target:
+  ```bash
+  rustup target add wasm32-wasip2
+  ```
+- **Golem CLI** (version 1.6.0+): [Install Golem CLI](https://learn.golem.cloud/cli)
+- **Node.js** (v18+) & **npm** (for the Vue 3 frontend)
 
-   See [Golem Quickstart](https://learn.golem.cloud/quickstart) for more information.
+### 2. Configure LLM API Keys
+The AI assistants require an LLM API key. By default, `golem.yaml` is configured for Google Gemini API (`gemini-3.1-flash-lite`). You can provide either:
 
+```bash
+# Google Gemini API key (default)
+export GEMINI_API_KEY="your-gemini-api-key"
 
-2. **Build and Deploy**:
-   ```bash
-   # Build all components
-   golem-cli build
-   
-   # Deploy to Golem
-   golem-cli deploy
-   ```
-NOTE: shopping-assistant agent using Open Router API for LLM calls. API key is required to run the app (`OPENROUTER_KEY` environment variable)
+# Or OpenRouter API key (if using OpenRouter config in golem.yaml)
+export OPENROUTER_KEY="your-openrouter-key"
+```
 
-3. **Import Sample Data**:
-   For information on importing sample data, see the [Data README](./data/README.md).
+### 3. Build and Deploy Golem Backend
 
+Start the local Golem dev server if not already running:
+```bash
+golem server
+```
+
+Build and deploy the application:
+```bash
+# Compile WASM components
+golem build --yes
+
+# Deploy agents and API routing
+golem deploy --yes
+```
+
+The Golem API Gateway will be available at `http://localhost:9006`.
+
+### 4. Run Frontend Applications
+
+#### Option A: Modern Vue 3 Frontend
+Refer to the [Frontend README](frontend/README.md) for setup and development server instructions (`http://localhost:3000`).
+
+#### Option B: Embedded Web Chat Interfaces
+Navigate directly to:
+- Shopping Assistant: `http://localhost:9006/assistant`
+- Store Manager: `http://localhost:9006/manager`
+
+### 5. Import Sample Data
+To populate the store with sample products, prices, and regional inventory fixtures, refer to the [Sample Data README](data/README.md) for instructions on using `drill` with `data/import.yaml`.

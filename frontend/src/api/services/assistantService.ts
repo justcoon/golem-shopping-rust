@@ -7,6 +7,12 @@ export interface RecommendedItems {
   product_brands: string[];
 }
 
+export interface ChatThreadSummary {
+  chat_id: string;
+  title: string;
+  created_at: string;
+}
+
 export interface ToolCallRecord {
   id: string;
   tool_name: string;
@@ -135,60 +141,116 @@ export const getRecommendedProducts = async (
   }
 };
 
-export const chatWithAssistant = async (userId: string, message: string): Promise<ChatResponse> => {
+export const listAssistantChats = async (userId: string): Promise<ChatThreadSummary[]> => {
   try {
-    return await apiClient.post(`/v1/assistant/${userId}/chat`, { message });
+    return await apiClient.get(`/v1/assistant/${userId}/chats`);
+  } catch (error) {
+    console.error("Failed to list assistant chats:", error);
+    throw error;
+  }
+};
+
+export const createAssistantChat = async (
+  userId: string,
+  title?: string,
+): Promise<ChatThreadSummary> => {
+  try {
+    return await apiClient.post(`/v1/assistant/${userId}/chats`, { title });
+  } catch (error) {
+    console.error("Failed to create assistant chat:", error);
+    throw error;
+  }
+};
+
+export const deleteAssistantChat = async (userId: string, chatId: string): Promise<boolean> => {
+  try {
+    return await apiClient.delete(`/v1/assistant/${userId}/chats/${chatId}`);
+  } catch (error) {
+    console.error("Failed to delete assistant chat:", error);
+    throw error;
+  }
+};
+
+export const chatWithAssistant = async (
+  userId: string,
+  message: string,
+  chatId: string = "default",
+): Promise<ChatResponse> => {
+  try {
+    return await apiClient.post(`/v1/assistant/${userId}/chats/${chatId}/chat`, { message });
   } catch (error) {
     console.error("Failed to send chat message:", error);
     throw error;
   }
 };
 
-export const getAssistantHistory = async (userId: string): Promise<ChatMessage[]> => {
+export const getAssistantHistory = async (
+  userId: string,
+  chatId: string = "default",
+): Promise<ChatMessage[]> => {
   try {
-    return await apiClient.get(`/v1/assistant/${userId}/history`);
+    const rawList = await apiClient.get<any[]>(`/v1/assistant/${userId}/chats/${chatId}/history`);
+    return (rawList || []).map((msg) => ({
+      role: String(msg.role || "").toLowerCase().trim(),
+      content: msg.content || "",
+      timestamp: msg.timestamp || "",
+      type: String(msg.type || msg["r#type"] || "ok").toLowerCase().trim(),
+      tool_calls: msg.tool_calls ?? msg.toolCalls,
+    }));
   } catch (error) {
     console.error("Failed to fetch assistant history:", error);
     throw error;
   }
 };
 
-export const clearAssistantHistory = async (userId: string): Promise<void> => {
+export const clearAssistantHistory = async (
+  userId: string,
+  chatId: string = "default",
+): Promise<void> => {
   try {
-    await apiClient.post(`/v1/assistant/${userId}/clear-history`, {});
+    await apiClient.post(`/v1/assistant/${userId}/chats/${chatId}/clear-history`, {});
   } catch (error) {
     console.error("Failed to clear assistant history:", error);
     throw error;
   }
 };
 
-export const streamChatWithAssistant = async (
-  userId: string,
-  message: string,
-  onChunk: (chunk: ChatChunk) => void,
-  signal?: AbortSignal,
-): Promise<void> => {
-  if (signal?.aborted) return;
+export interface ChatSession {
+  sessionPath: string;
+  sendMessage: (message: string) => Promise<void>;
+  close: () => void;
+}
 
-  const putResponse = await fetch(`/api/v1/assistant/${userId}/chat-stream`, {
+export const createChatSession = async (
+  userId: string,
+  onChunk: (chunk: ChatChunk) => void,
+  onError?: (error: any) => void,
+  signal?: AbortSignal,
+  chatId: string = "default",
+): Promise<ChatSession> => {
+  if (signal?.aborted) {
+    throw new Error("Chat session creation aborted");
+  }
+
+  const putResponse = await fetch(`/api/v1/assistant/${userId}/chats/${chatId}/chat-session`, {
     method: "PUT",
     signal,
     headers: {
       "Content-Type": "application/json",
-      "Stream-TTL": "300",
+      "Stream-TTL": "600",
     },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({}),
   });
 
   if (!putResponse.ok) {
     throw new Error(
-      `Failed to create stream session: ${putResponse.status} ${putResponse.statusText}`,
+      `Failed to create bi-directional chat session: ${putResponse.status} ${putResponse.statusText}`,
     );
   }
 
   const location = putResponse.headers.get("Location");
   if (!location) {
-    throw new Error("Missing Location header from stream session creation");
+    throw new Error("Missing Location header from chat session creation");
   }
 
   let sessionPath = location;
@@ -201,78 +263,74 @@ export const streamChatWithAssistant = async (
     sessionPath = `/api${sessionPath.startsWith("/") ? "" : "/"}${sessionPath}`;
   }
 
-  const slotName = "$result";
-  const slotUrl = `${sessionPath}/streams/${encodeURIComponent(slotName)}?live=sse&offset=-1`;
+  const outboxUrl = `${sessionPath}/streams/outbox?live=sse&offset=-1`;
+  const eventSource = new EventSource(outboxUrl);
+  let isClosed = false;
 
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      fetch(sessionPath, { method: "DELETE" }).catch(() => {});
-      resolve();
-      return;
-    }
+  const close = () => {
+    if (isClosed) return;
+    isClosed = true;
+    eventSource.close();
+    fetch(sessionPath, { method: "DELETE" }).catch(() => {});
+  };
 
-    const eventSource = new EventSource(slotUrl);
-    let isClosed = false;
-
-    const cleanup = () => {
-      if (isClosed) return;
-      isClosed = true;
-      eventSource.close();
-      fetch(sessionPath, { method: "DELETE" }).catch(() => {});
-    };
-
-    signal?.addEventListener("abort", () => {
-      cleanup();
-      resolve();
-    });
-
-    const handleData = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        const processItem = (item: any) => {
-          const chunk = normalizeChatChunk(item);
-          if (chunk) {
-            onChunk(chunk);
-            if (chunk._tag === "done") {
-              cleanup();
-              resolve();
-              return true;
-            }
-          }
-          return false;
-        };
-
-        if (Array.isArray(data)) {
-          for (const item of data) {
-            if (processItem(item)) return;
-          }
-        } else if (data && typeof data === "object") {
-          processItem(data);
-        }
-      } catch (err) {
-        console.warn("Failed to parse SSE update:", err);
-      }
-    };
-
-    eventSource.addEventListener("data", handleData as EventListener);
-    eventSource.addEventListener("message", handleData as EventListener);
-    eventSource.onmessage = handleData;
-
-    eventSource.addEventListener("control", (event: any) => {
-      try {
-        const control = JSON.parse(event.data);
-        if (control?.streamClosed) {
-          cleanup();
-          resolve();
-        }
-      } catch {}
-    });
-
-    eventSource.onerror = (err) => {
-      if (eventSource.readyState === EventSource.CLOSED || !isClosed) {
-        cleanup();
-        reject(err);
-      }
-    };
+  signal?.addEventListener("abort", () => {
+    close();
   });
+
+  const handleData = (event: MessageEvent) => {
+    try {
+      if (!event.data) return;
+      const data = JSON.parse(event.data);
+      const processItem = (item: any) => {
+        const chunk = normalizeChatChunk(item);
+        if (chunk) {
+          onChunk(chunk);
+        }
+      };
+
+      if (Array.isArray(data)) {
+        for (const item of data) {
+          processItem(item);
+        }
+      } else if (data && typeof data === "object") {
+        processItem(data);
+      }
+    } catch (err) {
+      console.warn("Failed to parse chat session SSE chunk:", err);
+    }
+  };
+
+  eventSource.addEventListener("data", handleData as EventListener);
+  eventSource.addEventListener("message", handleData as EventListener);
+  eventSource.onmessage = handleData;
+
+  eventSource.onerror = (err) => {
+    if (!isClosed && onError) {
+      onError(err);
+    }
+  };
+
+  const sendMessage = async (message: string): Promise<void> => {
+    if (isClosed) {
+      throw new Error("Chat session is closed");
+    }
+    const inboxUrl = `${sessionPath}/streams/inbox`;
+    const res = await fetch(inboxUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ message }),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to post message to inbox: ${res.status} ${res.statusText}`);
+    }
+  };
+
+  return {
+    sessionPath,
+    sendMessage,
+    close,
+  };
 };

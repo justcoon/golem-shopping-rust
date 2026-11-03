@@ -1,8 +1,9 @@
 pub mod tools;
 
+use crate::ai::schema::{ChatThreadSummary, CreateChatRequest};
 use crate::ai::{
-    AgentConfig, ChatChunk, ChatMessage, ChatResponse, ChatTurnResult, LlmConfig, ToolDispatcher,
-    process_chat_turn,
+    AgentConfig, ChatChunk, ChatMessage, ChatResponse, ChatTurnResult, ClientMessage, LlmConfig,
+    ToolDispatcher, process_chat_session, process_chat_turn,
 };
 use crate::cart::CartAgentClient;
 use crate::order::{OrderAgentClient, OrderItem};
@@ -14,7 +15,9 @@ use golem_rust::retry::*;
 use golem_rust::{Schema, agent_definition, agent_implementation, endpoint, read_only};
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::Duration;
 use tools::*;
 
@@ -212,28 +215,43 @@ pub struct RecommendedItems {
 struct ShoppingAssistantSnapshot {
     recommended_items: RecommendedItems,
     #[serde(default)]
-    messages: Vec<ChatMessage>,
+    threads: Vec<ChatThreadSummary>,
 }
 
-struct ShoppingAssistantDispatcher<'a> {
-    user_id: &'a str,
+struct ShoppingAssistantDispatcher {
+    user_id: String,
 }
 
-impl ToolDispatcher for ShoppingAssistantDispatcher<'_> {
+impl ToolDispatcher for ShoppingAssistantDispatcher {
     async fn execute(&self, name: &str, arguments: &str) -> (String, String) {
-        execute_shopping_assistant_tool(self.user_id, name, arguments).await
+        execute_shopping_assistant_tool(&self.user_id, name, arguments).await
     }
 }
 
-#[agent_definition(mount = "/v1/assistant/{id}")]
-pub trait ShoppingAssistantAgent {
-    fn new(id: String, #[agent_config] config: Config<AgentConfig>) -> Self;
+// -----------------------------------------------------------------------------
+// ShoppingAssistantChatAgent (Individual conversation thread)
+// -----------------------------------------------------------------------------
+
+#[agent_definition(mount = "/v1/assistant/{user_id}/chats/{chat_id}")]
+pub trait ShoppingAssistantChatAgent {
+    fn new(user_id: String, chat_id: String, #[agent_config] config: Config<AgentConfig>) -> Self;
 
     #[endpoint(post = "/chat")]
     async fn chat(&mut self, message: String) -> ChatResponse;
 
-    #[endpoint(post = "/chat-stream")]
-    async fn chat_stream(&mut self, message: String) -> AgentStream<ChatChunk>;
+    #[endpoint(
+        post = "/chat-session",
+        durable_streams(
+            input("input", name = "inbox"),
+            output("$result", name = "outbox"),
+            allow_external_writes = true,
+            allow_stream_delete = true,
+            allow_invocation_delete = true,
+            max_concurrent_readers_per_stream = 8,
+            max_append_requests_per_second_per_stream = 25,
+        )
+    )]
+    fn chat_session(&mut self, input: AgentStream<ClientMessage>) -> AgentStream<ChatChunk>;
 
     #[read_only]
     #[endpoint(get = "/history")]
@@ -241,41 +259,125 @@ pub trait ShoppingAssistantAgent {
 
     #[endpoint(post = "/clear-history")]
     fn clear_history(&mut self);
-
-    #[read_only]
-    #[endpoint(get = "/recommended-items")]
-    fn get_recommended_items(&self) -> RecommendedItems;
-
-    async fn recommend_items(&mut self) -> bool;
 }
 
-pub struct ShoppingAssistantAgentImpl {
-    _id: String,
+pub struct ShoppingAssistantChatAgentImpl {
+    user_id: String,
+    _chat_id: String,
     config: Config<AgentConfig>,
-    recommended_items: RecommendedItems,
-    messages: Vec<ChatMessage>,
+    messages: Rc<RefCell<Vec<ChatMessage>>>,
 }
 
-impl ShoppingAssistantAgentImpl {
+impl ShoppingAssistantChatAgentImpl {
     async fn execute_turn(&mut self, message: String) -> ChatTurnResult {
-        let dispatcher = ShoppingAssistantDispatcher { user_id: &self._id };
+        let dispatcher = ShoppingAssistantDispatcher {
+            user_id: self.user_id.clone(),
+        };
         let tools = get_shopping_assistant_tools();
-        process_chat_turn(
+        let mut msgs = self.messages.borrow().clone();
+        let result = process_chat_turn(
             &self.config,
-            &mut self.messages,
+            &mut msgs,
             message,
             SHOPPING_ASSISTANT_SYSTEM_PROMPT,
             &tools,
             "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
             &dispatcher,
         )
-        .await
+        .await;
+        *self.messages.borrow_mut() = msgs;
+        result
     }
+}
+
+#[agent_implementation]
+impl ShoppingAssistantChatAgent for ShoppingAssistantChatAgentImpl {
+    fn new(user_id: String, chat_id: String, #[agent_config] config: Config<AgentConfig>) -> Self {
+        ShoppingAssistantChatAgentImpl {
+            user_id,
+            _chat_id: chat_id,
+            config,
+            messages: Rc::new(RefCell::new(Vec::new())),
+        }
+    }
+
+    async fn chat(&mut self, message: String) -> ChatResponse {
+        self.execute_turn(message).await.to_response()
+    }
+
+    fn chat_session(&mut self, input: AgentStream<ClientMessage>) -> AgentStream<ChatChunk> {
+        let dispatcher = ShoppingAssistantDispatcher {
+            user_id: self.user_id.clone(),
+        };
+        process_chat_session(
+            &self.config,
+            self.messages.clone(),
+            input,
+            SHOPPING_ASSISTANT_SYSTEM_PROMPT,
+            get_shopping_assistant_tools(),
+            "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
+            dispatcher,
+        )
+    }
+
+    fn get_history(&self) -> Vec<ChatMessage> {
+        self.messages.borrow().clone()
+    }
+
+    fn clear_history(&mut self) {
+        self.messages.borrow_mut().clear();
+    }
+}
+
+// -----------------------------------------------------------------------------
+// ShoppingAssistantAgent (User workspace & chat thread index)
+// -----------------------------------------------------------------------------
+
+#[agent_definition(mount = "/v1/assistant/{id}")]
+pub trait ShoppingAssistantAgent {
+    fn new(id: String, #[agent_config] config: Config<AgentConfig>) -> Self;
+
+    #[endpoint(get = "/chats")]
+    fn list_chats(&self) -> Vec<ChatThreadSummary>;
+
+    #[endpoint(post = "/chats")]
+    fn create_chat(&mut self, req: CreateChatRequest) -> ChatThreadSummary;
+
+    #[endpoint(delete = "/chats/{chat_id}")]
+    fn delete_chat(&mut self, chat_id: String) -> bool;
+
+    #[read_only]
+    #[endpoint(get = "/recommended-items")]
+    fn get_recommended_items(&self) -> RecommendedItems;
+
+    async fn recommend_items(&mut self) -> bool;
+
+    // Backwards-compatibility proxies to "default" chat
+    #[endpoint(get = "/history")]
+    async fn get_history(&self) -> Vec<ChatMessage>;
+
+    #[endpoint(post = "/chat")]
+    async fn chat(&mut self, message: String) -> ChatResponse;
+
+    #[endpoint(post = "/clear-history")]
+    async fn clear_history(&mut self);
+}
+
+pub struct ShoppingAssistantAgentImpl {
+    _id: String,
+    config: Config<AgentConfig>,
+    recommended_items: RecommendedItems,
+    threads: Vec<ChatThreadSummary>,
 }
 
 #[agent_implementation]
 impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
     fn new(id: String, #[agent_config] config: Config<AgentConfig>) -> Self {
+        let default_thread = ChatThreadSummary {
+            chat_id: "default".to_string(),
+            title: "Main Shopping Assistant".to_string(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
         ShoppingAssistantAgentImpl {
             _id: id,
             config,
@@ -284,24 +386,33 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
                 product_brands: Vec::new(),
                 updated_at: chrono::Utc::now(),
             },
-            messages: Vec::new(),
+            threads: vec![default_thread],
         }
     }
 
-    async fn chat(&mut self, message: String) -> ChatResponse {
-        self.execute_turn(message).await.to_response()
+    fn list_chats(&self) -> Vec<ChatThreadSummary> {
+        self.threads.clone()
     }
 
-    async fn chat_stream(&mut self, message: String) -> AgentStream<ChatChunk> {
-        self.execute_turn(message).await.to_stream()
+    fn create_chat(&mut self, req: CreateChatRequest) -> ChatThreadSummary {
+        let chat_id = format!("chat-{}", uuid::Uuid::new_v4().simple());
+        let title = req
+            .title
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| "New Conversation".to_string());
+        let summary = ChatThreadSummary {
+            chat_id,
+            title,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        self.threads.push(summary.clone());
+        summary
     }
 
-    fn get_history(&self) -> Vec<ChatMessage> {
-        self.messages.clone()
-    }
-
-    fn clear_history(&mut self) {
-        self.messages.clear();
+    fn delete_chat(&mut self, chat_id: String) -> bool {
+        let initial_len = self.threads.len();
+        self.threads.retain(|t| t.chat_id != chat_id);
+        self.threads.len() < initial_len
     }
 
     fn get_recommended_items(&self) -> RecommendedItems {
@@ -340,19 +451,29 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
         }
     }
 
+    async fn get_history(&self) -> Vec<ChatMessage> {
+        ShoppingAssistantChatAgentClient::get(self._id.clone(), "default".to_string())
+            .get_history()
+            .await
+    }
+
+    async fn chat(&mut self, message: String) -> ChatResponse {
+        let mut client =
+            ShoppingAssistantChatAgentClient::get(self._id.clone(), "default".to_string());
+        client.chat(message).await
+    }
+
+    async fn clear_history(&mut self) {
+        let mut client =
+            ShoppingAssistantChatAgentClient::get(self._id.clone(), "default".to_string());
+        client.clear_history().await;
+    }
+
     async fn load_snapshot(
         bytes: Vec<u8>,
         context: golem_rust::agentic::SnapshotRestoreContext,
     ) -> Result<Self, String> {
-        let (recommended_items, messages) = if let Ok(snapshot) =
-            crate::common::snapshot::deserialize::<ShoppingAssistantSnapshot>(&bytes)
-        {
-            (snapshot.recommended_items, snapshot.messages)
-        } else {
-            let items: RecommendedItems = crate::common::snapshot::deserialize(&bytes)?;
-            (items, Vec::new())
-        };
-
+        let snapshot: ShoppingAssistantSnapshot = crate::common::snapshot::deserialize(&bytes)?;
         let mut parameters = golem_rust::agentic::DirectAgentInput::new(context.parameters)
             .map_err(|error| error.to_string())?;
         let id: String = parameters.take().map_err(|error| error.to_string())?;
@@ -361,15 +482,15 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
         Ok(Self {
             _id: id,
             config: Config::new(),
-            recommended_items,
-            messages,
+            recommended_items: snapshot.recommended_items,
+            threads: snapshot.threads,
         })
     }
 
     async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
         let snapshot = ShoppingAssistantSnapshot {
             recommended_items: self.recommended_items.clone(),
-            messages: self.messages.clone(),
+            threads: self.threads.clone(),
         };
         crate::common::snapshot::serialize(&snapshot)
     }

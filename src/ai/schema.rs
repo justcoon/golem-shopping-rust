@@ -61,6 +61,23 @@ pub struct ChatResponse {
     pub r#type: Option<ChatMessageType>,
 }
 
+#[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct ClientMessage {
+    pub message: String,
+}
+
+#[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct ChatThreadSummary {
+    pub chat_id: String,
+    pub title: String,
+    pub created_at: String,
+}
+
+#[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
+pub struct CreateChatRequest {
+    pub title: Option<String>,
+}
+
 #[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum ChatChunk {
     TextDelta {

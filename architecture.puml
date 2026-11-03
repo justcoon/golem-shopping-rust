@@ -11,129 +11,131 @@ skinparam ArrowColor #666666
 skinparam ComponentBackgroundColor #E8E8E8
 skinparam ComponentBorderColor #666666
 
-' Define components
-actor "User" as user #FFD700
+' Define actors and clients
+actor "Shopper / User" as user #FFD700
+actor "Store Manager" as store_manager #F39C12
 
-package "Golem Cloud" {
-    [API Gateway] as gateway #F9E79F
-    [Product Agent] as product #D5F5E3
-    [Pricing Agent] as pricing #D6EAF8
-    [Inventory Agent] as inventory #D4EFDF
-    [Cart Agent] as cart #FADBD8
-    [Order Agent] as order #E8DAEF
-    [Product Search Agent] as product_search #D1F2EB
-    [Order Search Agent] as order_search #D1F2EB
-    [Shopping Assistant Agent] as assistant #E8F8F5
+package "Frontend Clients" {
+    [Vue 3 SPA\n(Vite + Pinia + Tailwind)] as vue_frontend #AED6F1
+    [Web Chat UI\n(Assistant & Manager)] as web_ui #AED6F1
 }
 
-' Define relationships
-user --> gateway : "HTTP Requests\n(REST API Calls)"
+package "Golem Cloud Application" {
+    [API Gateway & Router] as gateway #F9E79F
 
-gateway --> product : "RPC\nProduct API"
-gateway --> pricing : "RPC\nPricing API"
-gateway --> inventory : "RPC\nInventory API"
-gateway --> cart : "RPC\nCart API"
-gateway --> order : "RPC\nOrder API"
-gateway --> product_search : "RPC\nProduct Search API"
-gateway --> order_search : "RPC\nOrder Search API"
-gateway --> assistant : "RPC\nAssistant API"
+    package "Commerce Agents (Stateful)" {
+        [Product Agent] as product #D5F5E3
+        [Pricing Agent] as pricing #D6EAF8
+        [Inventory Agent] as inventory #D4EFDF
+        [Cart Agent] as cart #FADBD8
+        [Order Agent] as order #E8DAEF
+    }
+
+    package "Search Agents (Ephemeral)" {
+        [Product Search Agent] as product_search #D1F2EB
+        [Order Search Agent] as order_search #D1F2EB
+    }
+
+    package "AI Assistants (Stateful / Multi-Thread Architecture)" {
+        package "Shopping Assistant" {
+            [Shopping Assistant Agent\n(Catalog & Thread Index)] as assistant #E8F8F5
+            [Shopping Assistant Chat Agent\n(Threads & Durable Streams)] as assistant_chat #E8F8F5
+        }
+        package "Store Manager" {
+            [Manager Agent\n(Catalog & Thread Index)] as manager #E8F8F5
+            [Manager Chat Agent\n(Threads & Durable Streams)] as manager_chat #E8F8F5
+        }
+    }
+
+    package "Static Web Agents (Ephemeral)" {
+        [Web Assistant] as web_assistant #FCF3CF
+        [Web Manager] as web_manager #FCF3CF
+    }
+}
+
+' External Services
+[AI / LLM Service\n(Gemini / OpenRouter)] as llm #D6EAF8
+
+' Client interactions
+user --> vue_frontend : "Browsing / Shopping"
+user --> web_ui : "Web Chat"
+store_manager --> web_ui : "Store Ops Chat"
+
+vue_frontend --> gateway : "HTTP REST / Durable Streams"
+web_ui --> gateway : "HTTP REST / Durable Streams"
+
+' Gateway routing
+gateway --> product : "RPC\n/v1/product/**"
+gateway --> pricing : "RPC\n/v1/pricing/**"
+gateway --> inventory : "RPC\n/v1/inventory/**"
+gateway --> cart : "RPC\n/v1/cart/**"
+gateway --> order : "RPC\n/v1/order/**"
+gateway --> product_search : "RPC\n/v1/product/search"
+gateway --> order_search : "RPC\n/v1/order-search/**"
+gateway --> assistant : "RPC\n/v1/assistant/{user_id}/chats"
+gateway --> assistant_chat : "RPC / Stream\n/v1/assistant/{user_id}/chats/{chat_id}/**"
+gateway --> manager : "RPC\n/v1/manager/{manager_id}/chats"
+gateway --> manager_chat : "RPC / Stream\n/v1/manager/{manager_id}/chats/{chat_id}/**"
+gateway --> web_assistant : "HTTP Static\n/assistant/**"
+gateway --> web_manager : "HTTP Static\n/manager/**"
 
 ' Agent-to-agent communication
 cart --> product : "RPC\nGet product info"
 cart --> pricing : "RPC\nGet pricing info"
 cart --> inventory : "RPC\nCheck inventory"
 cart --> order : "RPC\nCreate order from cart"
+
 order --> product : "RPC\nGet product info"
 order --> pricing : "RPC\nGet pricing info"
-order --> inventory : "RPC\nReserve / adjust / release / fulfill inventory"
+order --> inventory : "RPC\nReserve / adjust / fulfill stock"
+
 product_search --> product : "RPC\nGet product info"
 product_search --> pricing : "RPC\nGet price info"
 product_search --> inventory : "RPC\nCheck inventory"
-order_search --> order : "RPC\nGet order info"
 
-' Shopping Assistant relationships
-assistant --> cart : "RPC\nGet order history"
-assistant --> order : "RPC\nGet orders"
+order_search --> order : "RPC\nDiscover & query orders"
 
-' Add notes
+' Shopping Assistant tool relationships
+assistant_chat --> product : "RPC\nProduct details"
+assistant_chat --> product_search : "RPC\nCatalog search"
+assistant_chat --> pricing : "RPC\nPricing lookup"
+assistant_chat --> inventory : "RPC\nStock availability"
+assistant_chat --> cart : "RPC\nCart ops & checkout"
+assistant_chat --> order : "RPC\nOrder history & lookup"
+assistant_chat --> llm : "WASI HTTP p3\nChat completions & tool calling"
+
+' Manager Agent tool relationships
+manager_chat --> order : "RPC\nOrder details & status updates"
+manager_chat --> order_search : "RPC\nSearch & filter orders"
+manager_chat --> product : "RPC\nProduct details"
+manager_chat --> product_search : "RPC\nSearch products"
+manager_chat --> inventory : "RPC\nCheck & update inventory levels"
+manager_chat --> pricing : "RPC\nUpdate product prices"
+manager_chat --> llm : "WASI HTTP p3\nChat completions & tool calling"
+
+' Notes
+note bottom of assistant_chat
+  <b>Shopping Assistant Chat Agent</b>
+  - Dedicated actor instance per conversation thread (user_id, chat_id)
+  - 16 tools: search, pricing, inventory, cart management, checkout, orders
+  - Bi-directional streaming: <b>/chat-session</b> (Durable Streams: inbox/outbox)
+  - Isolated stream execution prevents queue blocking on parent assistant
+end note
+
+note bottom of manager_chat
+  <b>Manager Chat Agent</b>
+  - Dedicated actor instance per operational thread (manager_id, chat_id)
+  - Tools for order search/updates, stock adjustments, price changes
+  - Bi-directional streaming: <b>/chat-session</b> (Durable Streams: inbox/outbox)
+  - Isolated stream execution prevents queue blocking on parent manager
+end note
+
 note right of gateway
   <b>API Gateway</b>
-  - Routes REST API to agents
-  • /v1/product/** → Product Agent
-  • /v1/pricing/** → Pricing Agent
-  • /v1/inventory/** → Inventory Agent
-  • /v1/cart/** → Cart Agent
-  • /v1/order/** → Order Agent
-  • /v1/assistant/** → Shopping Assistant Agent
-  • /v1/product/search → Product Search Agent
-  • /v1/order-search/** → Order Search Agent
-  - Transforms REST to Golem RPC
-end note
-
-note right of product
-  <b>Product Agent</b>
-  - Manages product catalog
-  - State managed by Golem Cloud
-end note
-
-note right of pricing
-  <b>Pricing Agent</b>
-  - Manages product pricing
-  - Handles discounts/promotions
-  - State managed by Golem Cloud
-end note
-
-note right of inventory
-  <b>Inventory Agent</b>
-  - Manages product regional inventory
-  - Handles reservations per order
-  - Fulfills/releases stock on order transitions
-  - State managed by Golem Cloud
-end note
-
-note right of cart
-  <b>Cart Agent</b>
-  - Manages user shopping carts
-  - One cart per user
-  - Converts to order on checkout
-  - Preserves saved contact info & order history
-  - State managed by Golem Cloud
-end note
-
-note right of order
-  <b>Order Agent</b>
-  - Manages order lifecycle
-  - Handles order processing
-  - State management (New/Shipped/Cancelled)
-  - State managed by Golem Cloud
-end note
-
-note right of product_search
-  <b>Product Search Agent</b>
-  - Agent per request
-  - Gets product info from Product Agents
-  - Enriches products with Pricing and Inventory
-  - No persistent state
-end note
-
-note right of order_search
-  <b>Order Search Agent</b>
-  - Agent per request
-  - Discovers & queries Order Agents
-  - No persistent state
-end note
-
-' External Services
-[AI/LLM Service] as llm #D6EAF8
-
-' Connect LLM to Shopping Assistant
-assistant --> llm : "API Call"
-
-note right of assistant
-  <b>Shopping Assistant Agent</b>
-  - Provides AI-powered shopping assistance
-  - Personalized product and brand recommendations based on shopping history
-  - State managed by Golem Cloud
+  - Exposes unified HTTP API on port 9006
+  - Maps REST endpoints to Golem Agent RPC
+  - Bridges Durable Streams session & slot URLs
+  - Serves static assets for web clients
 end note
 
 @enduml

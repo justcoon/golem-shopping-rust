@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch, computed } from "vue";
+import { ref, onMounted, onUnmounted, nextTick, watch, computed } from "vue";
 import { useAssistantStore } from "@/stores/assistantStore";
 import { useAuthStore } from "@/stores/authStore";
 
@@ -98,11 +98,29 @@ const scrollToBottom = async () => {
   }
 };
 
+const handleSwitchThread = async (chatId: string) => {
+  await assistantStore.switchChat(chatId);
+  await scrollToBottom();
+};
+
+const handleNewThread = async () => {
+  const newChatId = await assistantStore.createNewChat();
+  if (newChatId) {
+    await scrollToBottom();
+    nextTick(() => inputRef.value?.focus());
+  }
+};
+
 onMounted(async () => {
   if (authStore.userId) {
+    await assistantStore.fetchChats();
     await assistantStore.fetchHistory();
     await scrollToBottom();
   }
+});
+
+onUnmounted(() => {
+  assistantStore.closeSession();
 });
 
 watch(
@@ -457,6 +475,32 @@ function renderMarkdown(md: string): string {
         </div>
       </div>
       <div class="header-actions">
+        <div v-if="assistantStore.chats.length > 0" class="thread-selector-container">
+          <select
+            class="thread-select"
+            :value="assistantStore.currentChatId"
+            :disabled="assistantStore.isLoading"
+            aria-label="Select conversation thread"
+            @change="(e) => handleSwitchThread((e.target as HTMLSelectElement).value)"
+          >
+            <option
+              v-for="chat in assistantStore.chats"
+              :key="chat.chat_id"
+              :value="chat.chat_id"
+            >
+              {{ chat.title }}
+            </option>
+          </select>
+          <button
+            type="button"
+            class="btn btn-secondary new-chat-btn"
+            :disabled="assistantStore.isLoading"
+            title="Start a new conversation thread"
+            @click="handleNewThread"
+          >
+            ➕ New Chat
+          </button>
+        </div>
         <button
           v-if="assistantStore.hasMessages"
           class="btn btn-secondary clear-btn"
@@ -821,6 +865,41 @@ function renderMarkdown(md: string): string {
   color: var(--text-muted);
   font-size: 0.85rem;
   margin: 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.thread-selector-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.thread-select {
+  background: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  max-width: 200px;
+}
+
+.thread-select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.new-chat-btn {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
 }
 
 .clear-btn {

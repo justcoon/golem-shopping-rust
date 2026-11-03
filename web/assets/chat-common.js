@@ -371,4 +371,27 @@ export function normalizeChunk(raw) {
   return { tag: "unknown", raw };
 }
 
+/**
+ * Normalizes chat message objects across backend response formats.
+ * Handles both "User"/"user" and "Assistant"/"assistant" role casings,
+ * along with "r#type" vs "type".
+ * @param {any} raw
+ * @returns {{ role: string, content: string, toolCalls: any[], timestamp: string, isError: boolean } | null}
+ */
+export function normalizeMessage(raw) {
+  if (!raw) return null;
+  const role = String(raw.role || "").toLowerCase().trim();
+  const rawType = raw.type || raw["r#type"] || raw.message_type || "";
+  const isError = String(rawType).toLowerCase().trim() === "error";
+  const toolCalls = raw.tool_calls || raw.toolCalls || [];
+  return {
+    role,
+    content: raw.content || "",
+    toolCalls: Array.isArray(toolCalls) ? toolCalls : [],
+    timestamp: raw.timestamp || "",
+    isError,
+  };
+}
+
+
 
