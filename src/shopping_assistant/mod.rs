@@ -1,16 +1,20 @@
+pub mod tools;
+
+use crate::ai::{
+    AgentConfig, ChatChunk, ChatMessage, ChatResponse, ChatTurnResult, LlmConfig, NoopDispatcher,
+    ToolDispatcher, execute_agent_chat_stream, execute_agent_chat_turn, extract_json_str,
+    process_chat_turn,
+};
 use crate::cart::CartAgentClient;
 use crate::order::{OrderAgentClient, OrderItem};
 use futures::future::join_all;
-use golem_ai_llm::LlmProvider;
-use golem_ai_llm::config::SecretSource;
-use golem_rust::agentic::{Config, Secret};
-use golem_rust::retry::*;
-use golem_rust::{ConfigSchema, Schema, agent_definition, agent_implementation, endpoint};
-
+use golem_rust::agentic::{AgentStream, Config, spawn_local};
+use golem_rust::{Schema, agent_definition, agent_implementation, endpoint, read_only};
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use tools::*;
 
 pub const RECOMMENDATION_INPUT_COUNT: u8 = 100;
 pub const RECOMMENDATION_PRODUCT_COUNT: u8 = 4;
@@ -65,35 +69,9 @@ async fn get_llm_recommendations(
     items: Vec<OrderItem>,
     config: LlmConfig,
 ) -> Result<LlmRecommendedItems, String> {
-    use golem_ai_llm::model::*;
     log::info!("LLM recommendations - items: {}", items.len());
     let current_items: Vec<LlmOrderItem> = items.into_iter().map(LlmOrderItem::from).collect();
     let current_items_string = serde_json::to_string(&current_items).map_err(|e| e.to_string())?;
-
-    let policy = NamedPolicy::named(
-        "shopping-assistant-llm-retry",
-        Policy::exponential(Duration::from_millis(200), 2.0)
-            .clamp(Duration::from_millis(100), Duration::from_secs(5))
-            .with_jitter(0.15)
-            .max_retries(5),
-    );
-
-    let provider_config = golem_ai_llm_openrouter::OpenRouterConfig {
-        api_key: SecretSource::from_handle(config.api_key),
-    };
-
-    let config = Config {
-        model: config.model.get().map_err(|e| format!("{e:?}"))?,
-        max_tokens: None,
-        temperature: None,
-        stop_sequences: None,
-        tools: None,
-        tool_choice: None,
-        provider_options: Some(vec![Kv {
-            key: "responseFormat".to_string(),
-            value: "json_object".to_string(),
-        }]),
-    };
 
     let schema = schema_for!(LlmRecommendedItems);
     let schema_json = serde_json::to_string_pretty(&schema).map_err(|e| e.to_string())?;
@@ -106,12 +84,6 @@ async fn get_llm_recommendations(
         "#
     );
 
-    let system_event = Event::Message(Message {
-        role: Role::System,
-        name: None,
-        content: vec![ContentPart::Text(system_message.to_string())],
-    });
-
     let user_message = format!(
         r#"
            We have a list of order items: {current_items_string}.
@@ -121,51 +93,33 @@ async fn get_llm_recommendations(
         "#
     );
 
-    let user_event = Event::Message(Message {
-        role: Role::User,
-        name: None,
-        content: vec![ContentPart::Text(user_message.to_string())],
-    });
+    let api_key = config.api_key.get().unwrap_or_default();
+    let model = config.model.get().unwrap_or_default();
+    let api_url = config.api_url.get().ok();
 
-    let llm_response = with_named_policy_async(&policy, async || {
-        golem_ai_llm_openrouter::DurableOpenRouter::send(
-            provider_config,
-            vec![system_event, user_event],
-            config,
-        )
-        .await
-        .expect("LLM recommendations")
-    })
+    let result = execute_agent_chat_turn(
+        &system_message,
+        &[],
+        &api_key,
+        &model,
+        api_url.as_deref(),
+        &[],
+        &user_message,
+        Some("Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets."),
+        &NoopDispatcher,
+    )
     .await;
 
-    match llm_response {
-        Ok(response) => {
-            let response_content = response
-                .content
-                .iter()
-                .filter_map(|part| match part {
-                    ContentPart::Text(text) => Some(text.clone()),
-                    _ => None,
-                })
-                .collect::<String>();
-
-            let json_str = response_content
-                .trim()
-                .strip_prefix("```json")
-                .and_then(|s| s.strip_suffix("```"))
-                .unwrap_or(&response_content)
-                .trim();
-
-            serde_json::from_str(json_str).map_err(|e| {
-                log::error!("LLM recommendations - response: {}, error: {}", json_str, e);
-                e.to_string()
-            })
-        }
-        Err(e) => {
-            log::error!("LLM recommendations - error: {}", e);
-            Err(e.to_string())
-        }
+    if result.is_error {
+        log::error!("LLM recommendations failed: {}", result.reply);
+        return Err(result.reply);
     }
+
+    let json_str = extract_json_str(&result.reply);
+    serde_json::from_str(json_str).map_err(|e| {
+        log::error!("LLM recommendations - response: {}, error: {}", json_str, e);
+        e.to_string()
+    })
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -202,34 +156,72 @@ pub struct RecommendedItems {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(ConfigSchema)]
-pub struct LlmConfig {
-    #[config_schema(secret)]
-    pub api_key: Secret<String>,
-    #[config_schema(secret)]
-    pub model: Secret<String>,
+#[derive(Serialize, Deserialize)]
+struct ShoppingAssistantSnapshot {
+    recommended_items: RecommendedItems,
+    #[serde(default)]
+    messages: Vec<ChatMessage>,
 }
 
-#[derive(ConfigSchema)]
-pub struct AgentConfig {
-    #[config_schema(nested)]
-    pub llm: LlmConfig,
+struct ShoppingAssistantDispatcher<'a> {
+    user_id: &'a str,
+}
+
+impl ToolDispatcher for ShoppingAssistantDispatcher<'_> {
+    async fn execute(&self, name: &str, arguments: &str) -> (String, String) {
+        execute_shopping_assistant_tool(self.user_id, name, arguments).await
+    }
 }
 
 #[agent_definition(mount = "/v1/assistant/{id}")]
-trait ShoppingAssistantAgent {
+pub trait ShoppingAssistantAgent {
     fn new(id: String, #[agent_config] config: Config<AgentConfig>) -> Self;
 
+    #[endpoint(post = "/chat")]
+    async fn chat(&mut self, message: String) -> ChatResponse;
+
+    #[endpoint(post = "/chat-stream")]
+    async fn chat_stream(&mut self, message: String) -> AgentStream<ChatChunk>;
+
+    #[read_only]
+    #[endpoint(get = "/history")]
+    fn get_history(&self) -> Vec<ChatMessage>;
+
+    #[endpoint(post = "/clear-history")]
+    fn clear_history(&mut self);
+
+    #[read_only]
     #[endpoint(get = "/recommended-items")]
     fn get_recommended_items(&self) -> RecommendedItems;
 
     async fn recommend_items(&mut self) -> bool;
 }
 
-struct ShoppingAssistantAgentImpl {
+pub struct ShoppingAssistantAgentImpl {
     _id: String,
     config: Config<AgentConfig>,
     recommended_items: RecommendedItems,
+    messages: Arc<Mutex<Vec<ChatMessage>>>,
+}
+
+impl ShoppingAssistantAgentImpl {
+    async fn execute_turn(&mut self, message: String) -> ChatTurnResult {
+        let dispatcher = ShoppingAssistantDispatcher { user_id: &self._id };
+        let tools = get_shopping_assistant_tools();
+        let mut messages = { self.messages.lock().unwrap().clone() };
+        let result = process_chat_turn(
+            &self.config,
+            &mut messages,
+            message,
+            SHOPPING_ASSISTANT_SYSTEM_PROMPT,
+            &tools,
+            "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
+            &dispatcher,
+        )
+        .await;
+        *self.messages.lock().unwrap() = messages;
+        result
+    }
 }
 
 #[agent_implementation]
@@ -243,7 +235,52 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
                 product_brands: Vec::new(),
                 updated_at: chrono::Utc::now(),
             },
+            messages: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    async fn chat(&mut self, message: String) -> ChatResponse {
+        self.execute_turn(message).await.to_response()
+    }
+
+    async fn chat_stream(&mut self, message: String) -> AgentStream<ChatChunk> {
+        let (writer, stream) = AgentStream::new();
+        let messages = self.messages.clone();
+        let (api_key, model, api_url) = match self.config.get() {
+            Ok(cfg) => (
+                cfg.llm.api_key.get().unwrap_or_default(),
+                cfg.llm.model.get().unwrap_or_default(),
+                cfg.llm.api_url.get().ok(),
+            ),
+            Err(_) => (String::new(), String::new(), None),
+        };
+        let user_id = self._id.clone();
+        spawn_local(async move {
+            let dispatcher = ShoppingAssistantDispatcher { user_id: &user_id };
+            let tools = get_shopping_assistant_tools();
+            execute_agent_chat_stream(
+                api_key,
+                model,
+                api_url,
+                messages,
+                message,
+                SHOPPING_ASSISTANT_SYSTEM_PROMPT,
+                &tools,
+                "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
+                &dispatcher,
+                writer,
+            )
+            .await;
+        });
+        stream
+    }
+
+    fn get_history(&self) -> Vec<ChatMessage> {
+        self.messages.lock().unwrap().clone()
+    }
+
+    fn clear_history(&mut self) {
+        self.messages.lock().unwrap().clear();
     }
 
     fn get_recommended_items(&self) -> RecommendedItems {
@@ -286,7 +323,15 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
         bytes: Vec<u8>,
         context: golem_rust::agentic::SnapshotRestoreContext,
     ) -> Result<Self, String> {
-        let data: RecommendedItems = crate::common::snapshot::deserialize(&bytes)?;
+        let (recommended_items, messages) = if let Ok(snapshot) =
+            crate::common::snapshot::deserialize::<ShoppingAssistantSnapshot>(&bytes)
+        {
+            (snapshot.recommended_items, snapshot.messages)
+        } else {
+            let items: RecommendedItems = crate::common::snapshot::deserialize(&bytes)?;
+            (items, Vec::new())
+        };
+
         let mut parameters = golem_rust::agentic::DirectAgentInput::new(context.parameters)
             .map_err(|error| error.to_string())?;
         let id: String = parameters.take().map_err(|error| error.to_string())?;
@@ -295,11 +340,16 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
         Ok(Self {
             _id: id,
             config: Config::new(),
-            recommended_items: data,
+            recommended_items,
+            messages: Arc::new(Mutex::new(messages)),
         })
     }
 
     async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
-        crate::common::snapshot::serialize(&self.recommended_items)
+        let snapshot = ShoppingAssistantSnapshot {
+            recommended_items: self.recommended_items.clone(),
+            messages: self.messages.lock().unwrap().clone(),
+        };
+        crate::common::snapshot::serialize(&snapshot)
     }
 }

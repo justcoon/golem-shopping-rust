@@ -6,6 +6,7 @@ This directory contains sample data and import scripts for the Golem Shopping ap
 
 - `fixtures/tech_products.csv`: Sample product data with fields like product ID, name, and brand
 - `fixtures/tech_prices.csv`: Sample pricing data for the products
+- `fixtures/tech_inventory.csv`: Sample regional inventory data for the products
 - `import.yaml`: Configuration for importing the sample data using the Drill framework
 
 ## Importing Sample Data
@@ -32,7 +33,7 @@ From the `data` directory, run:
 HOST=http://localhost:9006 API_HOST=localhost:9006 drill --benchmark import.yaml --stats
 ```
 
-This will import all sample products and their corresponding prices into your Golem Shopping application.
+This will import all sample products, their corresponding prices, and initial regional inventory into your Golem Shopping application.
 
 ## Data Structure
 
@@ -43,6 +44,10 @@ This will import all sample products and their corresponding prices into your Go
 ### Prices (`tech_prices.csv`)
 - `product-id`: References a product from the products file
 - `body`: JSON string containing pricing information
+
+### Inventory (`tech_inventory.csv`)
+- `product_id`: References a product from the products file
+- `body`: JSON string containing regional inventory items (region, total_quantity)
 
 ## Troubleshooting
 

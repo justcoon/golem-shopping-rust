@@ -1,11 +1,12 @@
-use crate::common::{Address, CURRENCY_DEFAULT, PRICING_REGION_DEFAULT};
-use crate::order::{CreateOrder, OrderAgentClient, OrderItem};
+use crate::common::{Address, CURRENCY_DEFAULT, INVENTORY_REGION_DEFAULT, PRICING_REGION_DEFAULT};
+use crate::inventory::InventoryAgentClient;
+use crate::order::{CreateOrder, Order, OrderAgentClient, OrderItem};
 use crate::pricing::{PricingAgentClient, PricingItem};
 use crate::product::{Product, ProductAgentClient};
 use crate::shopping_assistant::ShoppingAssistantAgentClient;
 use email_address::EmailAddress;
-use futures::future::join;
-use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
+use futures::future::{join, join_all};
+use golem_rust::{Schema, agent_definition, agent_implementation, description, endpoint, prompt};
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -215,10 +216,18 @@ pub struct EmptyEmailError {
 pub struct OrderCreateError {
     pub message: String,
 }
+#[derive(Schema, Clone, Serialize, Deserialize, Debug)]
+pub struct InsufficientStockError {
+    pub message: String,
+    pub product_id: String,
+    pub requested: u32,
+    pub available: u32,
+}
 #[derive(Schema, Clone)]
 pub enum AddItemError {
     ProductNotFound(ProductNotFoundError),
     PricingNotFound(PricingNotFoundError),
+    InsufficientStock(InsufficientStockError),
 }
 #[derive(Schema, Clone)]
 pub enum RemoveItemError {
@@ -237,6 +246,7 @@ pub enum UpdateEmailError {
 #[derive(Schema, Clone)]
 pub enum UpdateItemQuantityError {
     ItemNotFound(ItemNotFoundError),
+    InsufficientStock(InsufficientStockError),
 }
 #[derive(Schema, Clone)]
 pub enum CheckoutError {
@@ -246,6 +256,7 @@ pub enum CheckoutError {
     EmptyEmail(EmptyEmailError),
     BillingAddressNotSet(BillingAddressNotSetError),
     OrderCreate(OrderCreateError),
+    InsufficientStock(InsufficientStockError),
 }
 #[derive(Schema, Clone)]
 pub enum UpdateAddressError {
@@ -256,6 +267,14 @@ pub enum UpdateAddressError {
 pub struct OrderConfirmation {
     pub user_id: String,
     pub order_id: String,
+}
+
+#[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct SavedContactInfo {
+    pub shipping_address: Option<Address>,
+    pub billing_address: Option<Address>,
+    pub email: Option<String>,
+    pub source_order_id: Option<String>,
 }
 
 #[derive(Schema, Clone)]
@@ -314,20 +333,32 @@ async fn create_order(order_id: String, cart: Cart) -> Result<String, CheckoutEr
 
     let order = cart.into();
 
-    OrderAgentClient::get(order_id.clone())
+    let result = OrderAgentClient::get(order_id.clone())
         .initialize_order(order)
-        .await
-        .map_err(|_| {
-            CheckoutError::OrderCreate(OrderCreateError {
-                message: "Failed to create order".to_string(),
-            })
-        })?;
+        .await;
 
-    Ok(order_id)
+    match result {
+        Ok(_) => Ok(order_id),
+        Err(e) => match e {
+            crate::order::InitOrderError::InsufficientInventory(err) => {
+                Err(CheckoutError::InsufficientStock(InsufficientStockError {
+                    message: err.message,
+                    product_id: err.product_id,
+                    requested: err.requested,
+                    available: err.available,
+                }))
+            }
+            crate::order::InitOrderError::ActionNotAllowed(_) => {
+                Err(CheckoutError::OrderCreate(OrderCreateError {
+                    message: "Failed to create order: action not allowed".to_string(),
+                }))
+            }
+        },
+    }
 }
 
 #[agent_definition(mount = "/v1/cart/{id}")]
-trait CartAgent {
+pub trait CartAgent {
     fn new(id: String) -> Self;
 
     #[endpoint(get = "/")]
@@ -363,7 +394,7 @@ trait CartAgent {
         phone_number: Option<String>,
     ) -> Result<CartUpdated, UpdateAddressError>;
 
-    fn update_item_quantity(
+    async fn update_item_quantity(
         &mut self,
         product_id: String,
         quantity: u32,
@@ -380,6 +411,31 @@ trait CartAgent {
         name: Option<String>,
         phone_number: Option<String>,
     ) -> Result<CartUpdated, UpdateAddressError>;
+
+    #[endpoint(get = "/saved-contact")]
+    #[prompt(
+        "Call this before checkout to check if the user has saved shipping/billing details from previous orders."
+    )]
+    #[description(
+        "Retrieves previously saved contact information and addresses from the user's past orders."
+    )]
+    async fn get_saved_contact_info(&self) -> Option<SavedContactInfo>;
+
+    #[endpoint(post = "/use-saved-contact")]
+    #[prompt(
+        "Call this when the user confirms they want to use their saved address and contact info for 1-click checkout."
+    )]
+    #[description(
+        "Applies saved contact details and addresses from previous orders to the current cart."
+    )]
+    async fn apply_saved_contact_info(&mut self) -> Result<CartUpdated, UpdateAddressError>;
+
+    #[endpoint(get = "/orders?limit={limit}")]
+    #[prompt(
+        "Call this when the user asks about their previous orders, order history, or recent purchases."
+    )]
+    #[description("Retrieves past orders placed by this customer.")]
+    async fn get_order_history(&self, limit: Option<u32>) -> Vec<Order>;
 }
 
 struct CartAgentImpl {
@@ -446,6 +502,32 @@ impl CartAgent for CartAgentImpl {
             "Adding item with product {} to the cart of user {}",
             product_id, state.user_id
         );
+
+        let current_qty = state
+            .items
+            .iter()
+            .find(|i| i.product_id == product_id)
+            .map(|i| i.quantity)
+            .unwrap_or(0);
+        let desired_qty = current_qty + quantity;
+
+        let region = INVENTORY_REGION_DEFAULT.to_string();
+
+        let availability = InventoryAgentClient::get(product_id.clone())
+            .get_available_quantity(region)
+            .await;
+
+        if desired_qty > availability.available_quantity {
+            return Err(AddItemError::InsufficientStock(InsufficientStockError {
+                message: format!(
+                    "Insufficient stock for product {}. Requested: {}, available: {}",
+                    product_id, desired_qty, availability.available_quantity
+                ),
+                product_id,
+                requested: desired_qty,
+                available: availability.available_quantity,
+            }));
+        }
 
         let updated = state.update_item_quantity(product_id.clone(), quantity, true);
 
@@ -577,28 +659,47 @@ impl CartAgent for CartAgentImpl {
         })
     }
 
-    fn update_item_quantity(
+    async fn update_item_quantity(
         &mut self,
         product_id: String,
         quantity: u32,
     ) -> Result<CartUpdated, UpdateItemQuantityError> {
-        self.with_state(|state| {
-            info!(
-                "Updating quantity of item with product {} to {} in the cart of user {}",
-                product_id, quantity, state.user_id
-            );
+        let state = self.get_state();
+        info!(
+            "Updating quantity of item with product {} to {} in the cart of user {}",
+            product_id, quantity, state.user_id
+        );
 
-            let updated = state.update_item_quantity(product_id.clone(), quantity, false);
+        let item_exists = state.items.iter().any(|i| i.product_id == product_id);
+        if !item_exists {
+            return Err(UpdateItemQuantityError::ItemNotFound(
+                ItemNotFoundError::new(product_id),
+            ));
+        }
 
-            if updated {
-                Ok(CartUpdated {
-                    user_id: state.user_id.clone(),
-                })
-            } else {
-                Err(UpdateItemQuantityError::ItemNotFound(
-                    ItemNotFoundError::new(product_id),
-                ))
-            }
+        let region = INVENTORY_REGION_DEFAULT.to_string();
+
+        let availability = InventoryAgentClient::get(product_id.clone())
+            .get_available_quantity(region)
+            .await;
+
+        if quantity > availability.available_quantity {
+            return Err(UpdateItemQuantityError::InsufficientStock(
+                InsufficientStockError {
+                    message: format!(
+                        "Insufficient stock for product {}. Requested: {}, available: {}",
+                        product_id, quantity, availability.available_quantity
+                    ),
+                    product_id,
+                    requested: quantity,
+                    available: availability.available_quantity,
+                },
+            ));
+        }
+
+        state.update_item_quantity(product_id, quantity, false);
+        Ok(CartUpdated {
+            user_id: state.user_id.clone(),
         })
     }
 
@@ -634,6 +735,97 @@ impl CartAgent for CartAgentImpl {
         })
     }
 
+    async fn get_saved_contact_info(&self) -> Option<SavedContactInfo> {
+        info!("Getting saved contact info for user {}", self._id);
+        let cart = self.state.as_ref()?;
+        let last_order_id = cart.previous_order_ids.last()?.clone();
+        let order = OrderAgentClient::get(last_order_id.clone())
+            .get_order()
+            .await?;
+
+        Some(SavedContactInfo {
+            shipping_address: order.shipping_address,
+            billing_address: order.billing_address,
+            email: order.email,
+            source_order_id: Some(last_order_id),
+        })
+    }
+
+    async fn apply_saved_contact_info(&mut self) -> Result<CartUpdated, UpdateAddressError> {
+        let state = self.get_state();
+        info!("Applying saved contact info for user {}", state.user_id);
+
+        let last_order_id = match state.previous_order_ids.last() {
+            Some(id) => id.clone(),
+            None => {
+                return Err(UpdateAddressError::AddressNotValid(AddressNotValidError {
+                    message: "No previous orders found to apply saved contact info".to_string(),
+                }));
+            }
+        };
+
+        let order = match OrderAgentClient::get(last_order_id.clone())
+            .get_order()
+            .await
+        {
+            Some(order) => order,
+            None => {
+                return Err(UpdateAddressError::AddressNotValid(AddressNotValidError {
+                    message: format!("Previous order {last_order_id} could not be retrieved"),
+                }));
+            }
+        };
+
+        if let Some(shipping) = order.shipping_address {
+            state.set_shipping_address(shipping);
+        }
+        if let Some(billing) = order.billing_address {
+            state.set_billing_address(billing);
+        }
+        if let Some(email) = order.email {
+            state.set_email(email);
+        }
+
+        Ok(CartUpdated {
+            user_id: state.user_id.clone(),
+        })
+    }
+
+    async fn get_order_history(&self, limit: Option<u32>) -> Vec<Order> {
+        info!(
+            "Getting order history for user {}, limit: {:?}",
+            self._id, limit
+        );
+        let cart = match self.state.as_ref() {
+            Some(cart) => cart,
+            None => return vec![],
+        };
+
+        if cart.previous_order_ids.is_empty() {
+            return vec![];
+        }
+
+        let max_count = limit.unwrap_or(10) as usize;
+        let order_ids: Vec<String> = cart
+            .previous_order_ids
+            .iter()
+            .rev()
+            .take(max_count)
+            .cloned()
+            .collect();
+
+        let tasks: Vec<_> = order_ids
+            .into_iter()
+            .map(|order_id| async move {
+                let client = OrderAgentClient::get(order_id);
+                client.get_order().await
+            })
+            .collect();
+
+        let orders = join_all(tasks).await;
+        orders.into_iter().flatten().collect()
+    }
+
     async fn load_snapshot(
         bytes: Vec<u8>,
         context: golem_rust::agentic::SnapshotRestoreContext,
@@ -652,5 +844,33 @@ impl CartAgent for CartAgentImpl {
 
     async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
         crate::common::snapshot::serialize(&self.state)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_saved_contact_info_construction() {
+        let addr = Address {
+            street: "123 Main St".to_string(),
+            city: "San Francisco".to_string(),
+            state_or_region: "CA".to_string(),
+            country: "USA".to_string(),
+            postal_code: "94105".to_string(),
+            name: Some("Jane Doe".to_string()),
+            phone_number: Some("+1-555-0199".to_string()),
+        };
+
+        let contact = SavedContactInfo {
+            shipping_address: Some(addr.clone()),
+            billing_address: Some(addr),
+            email: Some("jane@example.com".to_string()),
+            source_order_id: Some("ord-999".to_string()),
+        };
+
+        assert_eq!(contact.email.as_deref(), Some("jane@example.com"));
+        assert_eq!(contact.source_order_id.as_deref(), Some("ord-999"));
     }
 }

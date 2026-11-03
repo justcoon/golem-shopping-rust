@@ -1,10 +1,6 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
-import {
-  createRouter,
-  createWebHistory,
-  type RouteLocationNormalized,
-} from "vue-router";
+import { createRouter, createWebHistory, type RouteLocationNormalized } from "vue-router";
 import App from "./App.vue";
 import "./style.css";
 
@@ -16,6 +12,7 @@ import CartView from "./views/CartView.vue";
 import CheckoutView from "./views/CheckoutView.vue";
 import OrderListView from "./views/OrderListView.vue";
 import OrderDetailView from "./views/OrderDetailView.vue";
+import ShoppingAssistantView from "./views/ShoppingAssistantView.vue";
 import LoginView from "./views/LoginView.vue";
 import NotFoundView from "./views/NotFoundView.vue";
 import { useAuthStore } from "./stores/authStore";
@@ -83,6 +80,12 @@ const router = createRouter({
       name: "order-detail",
       component: OrderDetailView,
       props: true,
+      beforeEnter: requireAuth,
+    },
+    {
+      path: "/assistant",
+      name: "assistant",
+      component: ShoppingAssistantView,
       beforeEnter: requireAuth,
     },
     {

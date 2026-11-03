@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, watch } from "vue";
 import { useCartStore } from "@/stores/cartStore";
 import { useAuthStore } from "@/stores/authStore";
 import { formatPrice } from "@/utils/currency";
+import { getProductImage } from "@/api/services/productService";
 
 const cartStore = useCartStore();
 const authStore = useAuthStore();
@@ -10,18 +11,13 @@ const currentUserId = authStore.userId;
 
 const cart = computed(() => cartStore.cart);
 
-// Watch for changes in the cart store
-import { watch } from "vue";
-
 onMounted(async () => {
   await cartStore.fetchCart(currentUserId);
 });
 
-// Watch for changes in the cart store and update local state
 watch(
   () => cartStore.cart,
   (newCart) => {
-    // This will trigger a re-render when the cart changes
     console.log("Cart updated:", newCart);
   },
   { deep: true },
@@ -46,205 +42,420 @@ async function removeItem(productId: string) {
 </script>
 
 <template>
-  <div class="cart">
-    <h1>Your Cart</h1>
-    <p v-if="!cart?.items?.length">Your cart is empty</p>
-    <div v-else>
-      <div
-        v-for="item in cart.items"
-        :key="item['product_id']"
-        class="cart-item"
-      >
-        <h3>
-          <router-link
-            :to="`/products/${item['product_id']}`"
-            class="product-link"
-          >
-            {{ item["product_name"] }}
-          </router-link>
-        </h3>
-        <div class="price">{{ formatPrice(item.price, cart.currency) }}</div>
-        <div class="quantity-controls">
-          <button
-            class="quantity-btn"
-            :disabled="item.quantity <= 1"
-            @click="updateQty(item['product_id'], item.quantity - 1)"
-          >
-            -
-          </button>
-          <span class="quantity">{{ item.quantity }}</span>
-          <button
-            class="quantity-btn"
-            @click="updateQty(item['product_id'], item.quantity + 1)"
-          >
-            +
-          </button>
-        </div>
-        <button class="remove-btn" @click="removeItem(item['product_id'])">
-          Remove
-        </button>
-      </div>
-      <div class="summary">
-        <div>
-          <div class="total-amount">
-            Total: {{ formatPrice(cart.total, cart.currency) }}
+  <div class="cart-view">
+    <div class="cart-header">
+      <h1 class="gradient-text">Your Shopping Cart</h1>
+      <p class="subtitle">Review items dynamically held in your persistent Golem Cart Agent</p>
+    </div>
+
+    <!-- Empty State -->
+    <div v-if="!cart?.items?.length" class="empty-cart glass-card">
+      <div class="empty-icon">🛒</div>
+      <h2>Your cart is empty</h2>
+      <p>Discover agentic products and add them to your cart to get started.</p>
+      <router-link to="/products" class="btn btn-primary"> Explore Catalog </router-link>
+    </div>
+
+    <!-- Cart Layout -->
+    <div v-else class="cart-layout">
+      <!-- Items List -->
+      <div class="cart-items">
+        <div v-for="item in cart.items" :key="item.product_id" class="cart-item glass-card">
+          <img
+            :src="getProductImage({ name: item.product_name })"
+            :alt="item.product_name"
+            class="item-thumb"
+          />
+
+          <div class="item-info">
+            <h3 class="item-title">
+              <router-link :to="`/products/${item.product_id}`" class="product-link">
+                {{ item.product_name }}
+              </router-link>
+            </h3>
+            <div class="item-meta">
+              <span class="item-sku">SKU: {{ item.product_id }}</span>
+              <span class="unit-price"> {{ formatPrice(item.price, cart.currency) }} each </span>
+            </div>
           </div>
-          <p
-            class="text-muted"
-            style="margin-top: 0.25rem; color: #6c757d; font-size: 0.9rem"
-          >
-            {{ cart.items.length }} item{{ cart.items.length !== 1 ? "s" : "" }}
-            in cart
-          </p>
+
+          <!-- Quantity Controls -->
+          <div class="quantity-picker">
+            <button
+              class="qty-btn"
+              :disabled="item.quantity <= 1"
+              @click="updateQty(item.product_id, item.quantity - 1)"
+            >
+              −
+            </button>
+            <span class="qty-val">{{ item.quantity }}</span>
+            <button class="qty-btn" @click="updateQty(item.product_id, item.quantity + 1)">+</button>
+          </div>
+
+          <!-- Line Total -->
+          <div class="item-total">
+            {{ formatPrice(item.price * item.quantity, cart.currency) }}
+          </div>
+
+          <!-- Remove Button -->
+          <button class="remove-btn" title="Remove item" @click="removeItem(item.product_id)">
+            ✕
+          </button>
         </div>
-        <router-link to="/checkout" class="btn"
-          >Proceed to Checkout</router-link
-        >
+      </div>
+
+      <!-- Order Summary Card -->
+      <div class="summary-col">
+        <div class="summary-card glass-card">
+          <h2 class="summary-title">Summary</h2>
+
+          <div class="summary-rows">
+            <div class="summary-row">
+              <span>Items ({{ cart.items.length }})</span>
+              <span class="val">{{ formatPrice(cart.total, cart.currency) }}</span>
+            </div>
+            <div class="summary-row">
+              <span>Estimated Shipping</span>
+              <span class="free-pill">FREE</span>
+            </div>
+          </div>
+
+          <div class="summary-divider"></div>
+
+          <div class="summary-total">
+            <span>Total</span>
+            <span class="total-amount">
+              {{ formatPrice(cart.total, cart.currency) }}
+            </span>
+          </div>
+
+          <router-link to="/checkout" class="btn btn-primary checkout-btn">
+            Proceed to Checkout →
+          </router-link>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.cart {
-  max-width: 1000px;
+.cart-view {
+  max-width: 1100px;
   margin: 0 auto;
-  padding: 2rem 1rem;
+  padding: 1.5rem 1rem 3rem;
 }
 
-.cart h1 {
+.cart-header {
   margin-bottom: 2rem;
-  color: #2c3e50;
+}
+
+.cart-header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 0 0 0.4rem;
+}
+
+.subtitle {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.empty-cart {
   text-align: center;
+  padding: 4rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.empty-icon {
+  font-size: 3.5rem;
+  opacity: 0.8;
+}
+
+.empty-cart h2 {
+  font-size: 1.5rem;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.empty-cart p {
+  color: var(--text-muted);
+  margin: 0 0 1rem;
+}
+
+/* Layout */
+.cart-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 2rem;
+  align-items: start;
+}
+
+.cart-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 .cart-item {
   display: grid;
-  grid-template-columns: 2fr 1fr 1.5fr 1fr;
+  grid-template-columns: 80px 1fr auto auto auto;
   align-items: center;
-  gap: 1.5rem;
+  gap: 1.25rem;
   padding: 1.25rem;
-  border-bottom: 1px solid #eee;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 .cart-item:hover {
-  background-color: #f9f9f9;
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
-.cart-item h3 {
+.item-thumb {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.item-title {
   margin: 0;
-  font-size: 1.1rem;
-  font-weight: 500;
-  color: #2c3e50;
+  font-size: 1.05rem;
+  font-weight: 600;
 }
 
-.price {
-  font-weight: 500;
-  color: #4a6fa5;
+.product-link {
+  color: var(--text-main);
+  text-decoration: none;
+  transition: color 0.2s;
 }
 
-.quantity-controls {
+.product-link:hover {
+  color: #c084fc;
+}
+
+.item-meta {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }
 
-.quantity-btn {
+.item-sku {
+  font-family: "JetBrains Mono", monospace;
+}
+
+.unit-price {
+  font-family: "JetBrains Mono", monospace;
+  color: var(--accent-cyan);
+}
+
+/* Quantity controls */
+.quantity-picker {
+  display: flex;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.qty-btn {
   width: 32px;
   height: 32px;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  font-size: 1rem;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f0f2f5;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 1rem;
-  transition: all 0.2s;
+  transition: background 0.2s;
 }
 
-.quantity-btn:hover {
-  background: #e1e4e8;
+.qty-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--primary);
 }
 
-.quantity {
-  min-width: 36px;
+.qty-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.qty-val {
+  min-width: 32px;
   text-align: center;
-  font-weight: 500;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.item-total {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  min-width: 80px;
+  text-align: right;
 }
 
 .remove-btn {
-  background: #ffebee;
-  color: #c62828;
-  border: 1px solid #ffcdd2;
-  border-radius: 4px;
-  padding: 0.5rem 1rem;
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  font-size: 0.9rem;
   transition: all 0.2s;
-  justify-self: end;
+  font-size: 0.9rem;
 }
 
 .remove-btn:hover {
-  background: #ffcdd2;
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #f87171;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
 }
 
-.summary {
-  margin-top: 2.5rem;
-  padding-top: 1.5rem;
-  border-top: 2px solid #eee;
+/* Summary Card */
+.summary-card {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  position: sticky;
+  top: 90px;
+}
+
+.summary-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text-main);
+}
+
+.summary-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.summary-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.summary-row .val {
+  font-family: "JetBrains Mono", monospace;
+  color: var(--text-main);
+  font-weight: 500;
+}
+
+.free-pill {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.15);
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.summary-divider {
+  height: 1px;
+  background: var(--border-color);
+}
+
+.summary-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-main);
 }
 
 .total-amount {
-  font-size: 1.5rem;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  text-shadow: 0 0 16px rgba(6, 182, 212, 0.3);
+}
+
+.checkout-btn {
+  width: 100%;
+  padding: 0.85rem;
+  font-size: 1rem;
   font-weight: 600;
-  color: #2c3e50;
-}
-
-.btn {
-  background: #4a6fa5;
-  color: white;
-  padding: 0.75rem 2rem;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  text-decoration: none;
-  font-weight: 500;
-  transition: background-color 0.2s;
   text-align: center;
-  display: inline-block;
+  text-decoration: none;
+  display: block;
 }
 
-.btn:hover {
-  background: #3a5a80;
+.security-note {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
 }
 
-/* Responsive adjustments */
-@media (max-width: 768px) {
-  .cart-item {
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-    padding: 1rem 0.5rem;
+@media (max-width: 860px) {
+  .cart-layout {
+    grid-template-columns: 1fr;
   }
 
-  .cart-item h3 {
-    grid-column: 1 / -1;
+  .cart-item {
+    grid-template-columns: 60px 1fr auto;
+    grid-template-areas:
+      "thumb info remove"
+      "thumb qty total";
+    gap: 0.75rem;
+  }
+
+  .item-thumb {
+    grid-area: thumb;
+    width: 60px;
+    height: 60px;
+  }
+
+  .item-info {
+    grid-area: info;
   }
 
   .remove-btn {
-    grid-column: 2;
-    grid-row: 2;
+    grid-area: remove;
     justify-self: end;
   }
 
-  .summary {
-    flex-direction: column;
-    gap: 1.5rem;
-    text-align: center;
+  .quantity-picker {
+    grid-area: qty;
+  }
+
+  .item-total {
+    grid-area: total;
+    justify-self: end;
   }
 }
 </style>

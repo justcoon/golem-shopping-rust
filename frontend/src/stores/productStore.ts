@@ -1,11 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import type { PriceFilterOptions } from "@/api/services/pricingService";
-import {
-  searchProducts,
-  getProductById,
-  type Product,
-} from "@/api/services/productService";
+import { searchProducts, getProductById, type Product } from "@/api/services/productService";
 
 export const useProductStore = defineStore("products", () => {
   const products = ref<Product[]>([]);
@@ -28,10 +24,7 @@ export const useProductStore = defineStore("products", () => {
     }
   };
 
-  const fetchProduct = async (
-    productId: string,
-    options?: PriceFilterOptions,
-  ) => {
+  const fetchProduct = async (productId: string, options?: PriceFilterOptions) => {
     isLoading.value = true;
     error.value = null;
 

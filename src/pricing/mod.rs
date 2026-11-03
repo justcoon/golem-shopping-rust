@@ -1,4 +1,4 @@
-use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
+use golem_rust::{Schema, agent_definition, agent_implementation, endpoint, read_only};
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -55,7 +55,7 @@ impl Pricing {
     }
 }
 
-#[derive(Schema, Clone, Serialize, Deserialize)]
+#[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct PricingItem {
     pub price: f32,
     pub currency: String,
@@ -195,12 +195,14 @@ fn merge_sale_items(
 }
 
 #[agent_definition(mount = "/v1/pricing/{id}")]
-trait PricingAgent {
+pub trait PricingAgent {
     fn new(id: String) -> Self;
 
+    #[read_only]
     #[endpoint(get = "/")]
     fn get_pricing(&self) -> Option<Pricing>;
 
+    #[read_only]
     fn get_price(&self, currency: String, region: String) -> Option<PricingItem>;
 
     #[endpoint(post = "/")]

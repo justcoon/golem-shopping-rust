@@ -1,12 +1,30 @@
+use crate::common::{CURRENCY_DEFAULT, INVENTORY_REGION_DEFAULT, PRICING_REGION_DEFAULT};
+use crate::inventory::InventoryAgentClient;
+use crate::pricing::{PricingAgentClient, PricingItem};
 use crate::product::{Product, ProductAgentClient};
 use futures::future::join_all;
 use golem_rust::{
     AgentAllFilter, AgentAnyFilter, AgentNameFilter, AgentPropertyFilter, ComponentId, GetAgents,
-    StringFilterComparator, agent_definition, agent_implementation, endpoint, resolve_component_id,
+    Schema, StringFilterComparator, agent_definition, agent_implementation, description, endpoint,
+    prompt, resolve_component_id,
 };
 use log::info;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+
+#[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct ProductWithPrice {
+    pub product_id: String,
+    pub name: String,
+    pub brand: String,
+    pub description: String,
+    pub tags: Vec<String>,
+    pub price: Option<PricingItem>,
+    pub available_quantity: Option<u32>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
 
 #[derive(Clone, Debug)]
 struct ProductQueryMatcher {
@@ -136,10 +154,8 @@ async fn get_products(
     agent_ids: HashSet<String>,
     matcher: ProductQueryMatcher,
 ) -> Result<Vec<Product>, String> {
-    let clients: Vec<ProductAgentClient> = agent_ids
-        .into_iter()
-        .map(|agent_id| ProductAgentClient::get(agent_id.to_string()))
-        .collect();
+    let clients: Vec<ProductAgentClient> =
+        agent_ids.into_iter().map(ProductAgentClient::get).collect();
 
     let tasks: Vec<_> = clients.iter().map(|client| client.get_product()).collect();
 
@@ -154,16 +170,148 @@ async fn get_products(
     Ok(result)
 }
 
-#[agent_definition(ephemeral, mount = "/v1/product/search")]
-trait ProductSearchAgent {
+async fn fetch_products_by_ids(ids: &str) -> Vec<Product> {
+    let product_ids: Vec<String> = ids
+        .split(',')
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+
+    info!("Get products - ids: ({})", product_ids.join(","));
+
+    let tasks: Vec<_> = product_ids
+        .into_iter()
+        .map(|id| async move {
+            let client = ProductAgentClient::get(id);
+            client.get_product().await
+        })
+        .collect();
+
+    let responses = join_all(tasks).await;
+    responses.into_iter().flatten().collect()
+}
+
+async fn attach_pricing_to_products(
+    products: Vec<Product>,
+    currency: Option<String>,
+) -> Vec<ProductWithPrice> {
+    if products.is_empty() {
+        return Vec::new();
+    }
+
+    let target_currency = currency.unwrap_or_else(|| CURRENCY_DEFAULT.to_string());
+    let target_region = PRICING_REGION_DEFAULT.to_string();
+    let inventory_region = INVENTORY_REGION_DEFAULT.to_string();
+
+    let tasks: Vec<_> = products
+        .into_iter()
+        .map(|product| {
+            let pid = product.product_id.clone();
+            let curr = target_currency.clone();
+            let reg = target_region.clone();
+            let inv_reg = inventory_region.clone();
+
+            async move {
+                let pricing_client = PricingAgentClient::get(pid.clone());
+                let inv_client = InventoryAgentClient::get(pid);
+
+                let (price, avail) = futures::future::join(
+                    pricing_client.get_price(curr, reg),
+                    inv_client.get_available_quantity(inv_reg),
+                )
+                .await;
+
+                ProductWithPrice {
+                    product_id: product.product_id,
+                    name: product.name,
+                    brand: product.brand,
+                    description: product.description,
+                    tags: product.tags,
+                    price,
+                    available_quantity: Some(avail.available_quantity),
+                    created_at: product.created_at,
+                    updated_at: product.updated_at,
+                }
+            }
+        })
+        .collect();
+
+    join_all(tasks).await
+}
+
+#[agent_definition(ephemeral, mount = "/v1/product")]
+pub trait ProductSearchAgent {
     fn new() -> Self;
 
-    #[endpoint(get = "/?query={query}")]
+    #[endpoint(get = "/?ids={ids}")]
+    #[description("Get products by comma-separated product IDs")]
+    async fn get_by_ids(&self, ids: String) -> Result<Vec<Product>, String>;
+
+    #[endpoint(get = "/search?query={query}")]
+    #[description("Search products across the catalog by query keyword or field filter")]
     async fn search(&self, query: String) -> Result<Vec<Product>, String>;
+
+    #[endpoint(get = "/with-prices?ids={ids}&currency={currency}")]
+    #[prompt(
+        "Call this to fetch specifications, descriptions, brands, tags, and prices for specific products."
+    )]
+    #[description("Get detailed product information with current pricing by product ID(s).")]
+    async fn get_by_ids_with_prices(
+        &self,
+        ids: String,
+        currency: Option<String>,
+    ) -> Result<Vec<ProductWithPrice>, String>;
+
+    #[endpoint(get = "/search-with-prices?query={query}&currency={currency}")]
+    #[prompt(
+        "Call this when the user is searching for products, asking recommendations, or looking for item options."
+    )]
+    #[description(
+        "Search product catalog with keyword, brand, or tag filters including active prices."
+    )]
+    async fn search_with_prices(
+        &self,
+        query: String,
+        currency: Option<String>,
+    ) -> Result<Vec<ProductWithPrice>, String>;
 }
 
 struct ProductSearchAgentImpl {
     component_id: Option<ComponentId>,
+}
+
+impl ProductSearchAgentImpl {
+    async fn search_products_by_query(&self, query: &str) -> Result<Vec<Product>, String> {
+        let component_id = self
+            .component_id
+            .clone()
+            .ok_or_else(|| "Component not found".to_string())?;
+
+        info!("searching for products - query: {}", query);
+
+        let mut values: Vec<Product> = Vec::new();
+        let matcher = ProductQueryMatcher::new(query);
+
+        let filter = get_agent_filter();
+
+        let get_agents = GetAgents::new(component_id, Some(&filter), false);
+
+        let mut processed_agent_ids: HashSet<String> = HashSet::new();
+
+        while let Some(agents) = get_agents.get_next().map_err(|e| e.to_string())? {
+            let agent_ids = agents
+                .iter()
+                .filter_map(|a| get_product_agent_id(a.agent_id.agent_id.as_str()))
+                .filter(|n| !processed_agent_ids.contains(n))
+                .collect::<HashSet<_>>();
+
+            let products = get_products(agent_ids.clone(), matcher.clone()).await?;
+            processed_agent_ids.extend(agent_ids);
+            values.extend(products);
+        }
+
+        Ok(values)
+    }
 }
 
 #[agent_implementation]
@@ -173,34 +321,66 @@ impl ProductSearchAgent for ProductSearchAgentImpl {
         ProductSearchAgentImpl { component_id }
     }
 
+    async fn get_by_ids(&self, ids: String) -> Result<Vec<Product>, String> {
+        Ok(fetch_products_by_ids(&ids).await)
+    }
+
     async fn search(&self, query: String) -> Result<Vec<Product>, String> {
-        if let Some(component_id) = self.component_id.clone() {
-            info!("searching for products - query: {}", query);
+        self.search_products_by_query(&query).await
+    }
 
-            let mut values: Vec<Product> = Vec::new();
-            let matcher = ProductQueryMatcher::new(&query);
+    async fn get_by_ids_with_prices(
+        &self,
+        ids: String,
+        currency: Option<String>,
+    ) -> Result<Vec<ProductWithPrice>, String> {
+        let products = fetch_products_by_ids(&ids).await;
+        Ok(attach_pricing_to_products(products, currency).await)
+    }
 
-            let filter = get_agent_filter();
+    async fn search_with_prices(
+        &self,
+        query: String,
+        currency: Option<String>,
+    ) -> Result<Vec<ProductWithPrice>, String> {
+        let products = self.search_products_by_query(&query).await?;
+        Ok(attach_pricing_to_products(products, currency).await)
+    }
+}
 
-            let get_agents = GetAgents::new(component_id, Some(&filter), false);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-            let mut processed_agent_ids: HashSet<String> = HashSet::new();
+    #[test]
+    fn test_extract_product_agent_id() {
+        assert_eq!(
+            get_product_agent_id(r#"ProductAgent("ap001")"#),
+            Some("ap001".to_string())
+        );
+        assert_eq!(get_product_agent_id(r#"OrderAgent("ord-1")"#), None);
+    }
 
-            while let Some(agents) = get_agents.get_next().map_err(|e| e.to_string())? {
-                let agent_ids = agents
-                    .iter()
-                    .filter_map(|a| get_product_agent_id(a.agent_id.agent_id.as_str()))
-                    .filter(|n| !processed_agent_ids.contains(n))
-                    .collect::<HashSet<_>>();
+    #[test]
+    fn test_query_matcher_terms() {
+        let now = chrono::Utc::now();
+        let product = Product {
+            product_id: "ap001".to_string(),
+            name: "iPhone 15 Pro".to_string(),
+            brand: "Apple".to_string(),
+            description: "Titanium design, A17 Pro chip".to_string(),
+            tags: vec!["smartphone".to_string(), "apple".to_string()],
+            created_at: now,
+            updated_at: now,
+        };
 
-                let products = get_products(agent_ids.clone(), matcher.clone()).await?;
-                processed_agent_ids.extend(agent_ids);
-                values.extend(products);
-            }
+        let matcher = ProductQueryMatcher::new("iphone");
+        assert!(matcher.matches(product.clone()));
 
-            Ok(values)
-        } else {
-            Err("Component not found".to_string())
-        }
+        let matcher_brand = ProductQueryMatcher::new("brand:Apple");
+        assert!(matcher_brand.matches(product.clone()));
+
+        let matcher_wrong = ProductQueryMatcher::new("Samsung");
+        assert!(!matcher_wrong.matches(product));
     }
 }

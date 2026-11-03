@@ -1,19 +1,278 @@
 import apiClient from "../config";
-import {getProductsByIds, type Product} from "./productService.ts";
-import {PriceFilterOptions} from "@/api/services/pricingService.ts";
+import { getProductsByIds, type Product } from "./productService.ts";
+import type { PriceFilterOptions } from "@/api/services/pricingService.ts";
 
 export interface RecommendedItems {
-    "product_ids": string[];
-    "product_brands": string[];
+  product_ids: string[];
+  product_brands: string[];
 }
 
-export const getRecommendedProducts = async (userId: string, options?: PriceFilterOptions): Promise<Product[]> => {
-    try {
-        const recommendedItems: RecommendedItems = await apiClient.get(`/v1/assistant/${userId}/recommended-items`);
-        return await getProductsByIds(recommendedItems["product_ids"], options);
-    } catch (error) {
-        console.error('Failed to fetch recommended products:', error);
-        throw error;
+export interface ToolCallRecord {
+  id: string;
+  tool_name: string;
+  arguments: string;
+  result: string;
+}
+
+export interface ChatMessage {
+  role: string;
+  content: string;
+  tool_calls?: ToolCallRecord[];
+  timestamp: string;
+  type?: string;
+}
+
+export interface TextDeltaChunk {
+  _tag: "text_delta";
+  content: string;
+}
+
+export interface ToolStartChunk {
+  _tag: "tool_start";
+  content: string;
+  tool_call: ToolCallRecord;
+}
+
+export interface ToolResultChunk {
+  _tag: "tool_result";
+  content: string;
+  tool_call: ToolCallRecord;
+}
+
+export interface DoneChunk {
+  _tag: "done";
+  content: string;
+}
+
+export interface ErrorChunk {
+  _tag: "error";
+  content: string;
+}
+
+export type ChatChunk =
+  | TextDeltaChunk
+  | ToolStartChunk
+  | ToolResultChunk
+  | DoneChunk
+  | ErrorChunk;
+
+export function normalizeChatChunk(raw: any): ChatChunk | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  if (typeof raw._tag === "string") {
+    return raw as ChatChunk;
+  }
+
+  const keys = Object.keys(raw);
+  if (keys.length === 1) {
+    const key = keys[0];
+    const lowerKey = key.toLowerCase().replace(/_/g, "");
+    const payload = raw[key] ?? {};
+
+    if (lowerKey === "textdelta") {
+      return {
+        _tag: "text_delta",
+        content: String(payload.content ?? (typeof payload === "string" ? payload : "")),
+      };
+    } else if (lowerKey === "toolstart") {
+      const tc = payload.tool_call ?? payload;
+      return {
+        _tag: "tool_start",
+        content: String(payload.content ?? ""),
+        tool_call: {
+          id: tc.id ?? "",
+          tool_name: tc.tool_name ?? "",
+          arguments: typeof tc.arguments === "string" ? tc.arguments : JSON.stringify(tc.arguments ?? ""),
+          result: typeof tc.result === "string" ? tc.result : JSON.stringify(tc.result ?? ""),
+        },
+      };
+    } else if (lowerKey === "toolresult") {
+      const tc = payload.tool_call ?? payload;
+      return {
+        _tag: "tool_result",
+        content: String(payload.content ?? ""),
+        tool_call: {
+          id: tc.id ?? "",
+          tool_name: tc.tool_name ?? "",
+          arguments: typeof tc.arguments === "string" ? tc.arguments : JSON.stringify(tc.arguments ?? ""),
+          result: typeof tc.result === "string" ? tc.result : JSON.stringify(tc.result ?? ""),
+        },
+      };
+    } else if (lowerKey === "done") {
+      return {
+        _tag: "done",
+        content: String(payload.content ?? (typeof payload === "string" ? payload : "")),
+      };
+    } else if (lowerKey === "error") {
+      return {
+        _tag: "error",
+        content: String(payload.content ?? (typeof payload === "string" ? payload : "")),
+      };
     }
+  }
+
+  return null;
+}
+
+export interface ChatResponse {
+  reply: string;
+  tool_calls_used: ToolCallRecord[];
+  type?: string;
+}
+
+export const getRecommendedProducts = async (
+  userId: string,
+  options?: PriceFilterOptions,
+): Promise<Product[]> => {
+  try {
+    const recommended: RecommendedItems = await apiClient.get(
+      `/v1/assistant/${userId}/recommended-items`,
+    );
+    return await getProductsByIds(recommended.product_ids || [], options);
+  } catch (error) {
+    console.error("Failed to fetch recommended products:", error);
+    throw error;
+  }
 };
 
+export const chatWithAssistant = async (userId: string, message: string): Promise<ChatResponse> => {
+  try {
+    return await apiClient.post(`/v1/assistant/${userId}/chat`, { message });
+  } catch (error) {
+    console.error("Failed to send chat message:", error);
+    throw error;
+  }
+};
+
+export const getAssistantHistory = async (userId: string): Promise<ChatMessage[]> => {
+  try {
+    return await apiClient.get(`/v1/assistant/${userId}/history`);
+  } catch (error) {
+    console.error("Failed to fetch assistant history:", error);
+    throw error;
+  }
+};
+
+export const clearAssistantHistory = async (userId: string): Promise<void> => {
+  try {
+    await apiClient.post(`/v1/assistant/${userId}/clear-history`, {});
+  } catch (error) {
+    console.error("Failed to clear assistant history:", error);
+    throw error;
+  }
+};
+
+export const streamChatWithAssistant = async (
+  userId: string,
+  message: string,
+  onChunk: (chunk: ChatChunk) => void,
+  signal?: AbortSignal,
+): Promise<void> => {
+  if (signal?.aborted) return;
+
+  const putResponse = await fetch(`/api/v1/assistant/${userId}/chat-stream`, {
+    method: "PUT",
+    signal,
+    headers: {
+      "Content-Type": "application/json",
+      "Stream-TTL": "300",
+    },
+    body: JSON.stringify({ message }),
+  });
+
+  if (!putResponse.ok) {
+    throw new Error(
+      `Failed to create stream session: ${putResponse.status} ${putResponse.statusText}`,
+    );
+  }
+
+  const location = putResponse.headers.get("Location");
+  if (!location) {
+    throw new Error("Missing Location header from stream session creation");
+  }
+
+  let sessionPath = location;
+  try {
+    if (sessionPath.startsWith("http://") || sessionPath.startsWith("https://")) {
+      sessionPath = new URL(sessionPath).pathname;
+    }
+  } catch {}
+  if (!sessionPath.startsWith("/api")) {
+    sessionPath = `/api${sessionPath.startsWith("/") ? "" : "/"}${sessionPath}`;
+  }
+
+  const slotName = "$result";
+  const slotUrl = `${sessionPath}/streams/${encodeURIComponent(slotName)}?live=sse&offset=-1`;
+
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      fetch(sessionPath, { method: "DELETE" }).catch(() => {});
+      resolve();
+      return;
+    }
+
+    const eventSource = new EventSource(slotUrl);
+    let isClosed = false;
+
+    const cleanup = () => {
+      if (isClosed) return;
+      isClosed = true;
+      eventSource.close();
+      fetch(sessionPath, { method: "DELETE" }).catch(() => {});
+    };
+
+    signal?.addEventListener("abort", () => {
+      cleanup();
+      resolve();
+    });
+
+    const handleData = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+        const processItem = (item: any) => {
+          const chunk = normalizeChatChunk(item);
+          if (chunk) {
+            onChunk(chunk);
+            if (chunk._tag === "done") {
+              cleanup();
+              resolve();
+              return true;
+            }
+          }
+          return false;
+        };
+
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            if (processItem(item)) return;
+          }
+        } else if (data && typeof data === "object") {
+          processItem(data);
+        }
+      } catch (err) {
+        console.warn("Failed to parse SSE update:", err);
+      }
+    };
+
+    eventSource.addEventListener("data", handleData as EventListener);
+    eventSource.addEventListener("message", handleData as EventListener);
+    eventSource.onmessage = handleData;
+
+    eventSource.addEventListener("control", (event: any) => {
+      try {
+        const control = JSON.parse(event.data);
+        if (control?.streamClosed) {
+          cleanup();
+          resolve();
+        }
+      } catch {}
+    });
+
+    eventSource.onerror = (err) => {
+      if (eventSource.readyState === EventSource.CLOSED || !isClosed) {
+        cleanup();
+        reject(err);
+      }
+    };
+  });
+};

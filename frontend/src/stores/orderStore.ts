@@ -27,7 +27,6 @@ export const useOrderStore = defineStore("orders", () => {
     try {
       const order = await getOrder(orderId);
       currentOrder.value = order;
-
       return order;
     } catch (err) {
       error.value = err as Error;
@@ -43,15 +42,11 @@ export const useOrderStore = defineStore("orders", () => {
     error.value = null;
 
     try {
-      // First, ensure we have the latest cart data
       if (!cartStore.cart) {
         await cartStore.fetchCart(userId);
       }
 
-      // Get order IDs from the cart's previous_order_ids
-      const orderIds = cartStore.cart?.["previous_order_ids"] || [];
-
-      // Fetch orders using the order IDs from the cart
+      const orderIds = cartStore.cart?.previous_order_ids || [];
       const userOrders = await getUserOrdersApi(userId, orderIds);
       orders.value = userOrders;
       return userOrders;
@@ -71,10 +66,7 @@ export const useOrderStore = defineStore("orders", () => {
         currentOrder.value.email = email;
       }
 
-      // Also update in the orders list if it exists there
-      const orderIndex = orders.value.findIndex(
-        (o) => o["order_id"] === orderId,
-      );
+      const orderIndex = orders.value.findIndex((o) => o.order_id === orderId);
       if (orderIndex !== -1) {
         orders.value[orderIndex].email = email;
       }
@@ -90,24 +82,19 @@ export const useOrderStore = defineStore("orders", () => {
     error.value = null;
 
     try {
-      const updatedOrder = await updateOrderBillingAddressApi(orderId, address);
+      await updateOrderBillingAddressApi(orderId, address);
+      const updatedOrder = await fetchOrder(orderId);
 
-      // Update local state
-      if (currentOrder.value && currentOrder.value["order_id"] === orderId) {
-        currentOrder.value = updatedOrder;
-      }
-
-      // Also update in the orders list if it exists there
-      const orderIndex = orders.value.findIndex(
-        (o) => o["order_id"] === orderId,
-      );
+      const orderIndex = orders.value.findIndex((o) => o.order_id === orderId);
       if (orderIndex !== -1) {
-        orders.value[orderIndex]["billing_address"] = address;
+        orders.value[orderIndex] = updatedOrder;
       }
     } catch (err) {
       error.value = err as Error;
       console.error("Error updating order billing address:", err);
       throw err;
+    } finally {
+      isLoading.value = false;
     }
   };
 
@@ -116,27 +103,19 @@ export const useOrderStore = defineStore("orders", () => {
     error.value = null;
 
     try {
-      const updatedOrder = await updateOrderShippingAddressApi(
-        orderId,
-        address,
-      );
+      await updateOrderShippingAddressApi(orderId, address);
+      const updatedOrder = await fetchOrder(orderId);
 
-      // Update local state
-      if (currentOrder.value && currentOrder.value["order_id"] === orderId) {
-        currentOrder.value = updatedOrder;
-      }
-
-      // Also update in the orders list if it exists there
-      const orderIndex = orders.value.findIndex(
-        (o) => o["order_id"] === orderId,
-      );
+      const orderIndex = orders.value.findIndex((o) => o.order_id === orderId);
       if (orderIndex !== -1) {
-        orders.value[orderIndex]["shipping_address"] = address;
+        orders.value[orderIndex] = updatedOrder;
       }
     } catch (err) {
       error.value = err as Error;
       console.error("Error updating order shipping address:", err);
       throw err;
+    } finally {
+      isLoading.value = false;
     }
   };
 
@@ -144,15 +123,12 @@ export const useOrderStore = defineStore("orders", () => {
     try {
       await shipOrderApi(orderId);
       if (currentOrder.value) {
-        currentOrder.value["order_status"] = "shipped";
+        currentOrder.value.order_status = "Shipped";
       }
 
-      // Update status in the orders list if it exists there
-      const orderIndex = orders.value.findIndex(
-        (o) => o["order_id"] === orderId,
-      );
+      const orderIndex = orders.value.findIndex((o) => o.order_id === orderId);
       if (orderIndex !== -1) {
-        orders.value[orderIndex]["order_status"] = "shipped";
+        orders.value[orderIndex].order_status = "Shipped";
       }
     } catch (err) {
       error.value = err as Error;
@@ -165,15 +141,12 @@ export const useOrderStore = defineStore("orders", () => {
     try {
       await cancelOrderApi(orderId);
       if (currentOrder.value) {
-        currentOrder.value["order_status"] = "cancelled";
+        currentOrder.value.order_status = "Cancelled";
       }
 
-      // Update status in the orders list if it exists there
-      const orderIndex = orders.value.findIndex(
-        (o) => o["order_id"] === orderId,
-      );
+      const orderIndex = orders.value.findIndex((o) => o.order_id === orderId);
       if (orderIndex !== -1) {
-        orders.value[orderIndex]["order_status"] = "cancelled";
+        orders.value[orderIndex].order_status = "Cancelled";
       }
     } catch (err) {
       error.value = err as Error;

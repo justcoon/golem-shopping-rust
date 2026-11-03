@@ -1,7 +1,12 @@
+pub mod ai;
 pub mod cart;
 pub mod common;
+pub mod inventory;
+pub mod manager;
 pub mod order;
+pub mod order_search;
 pub mod pricing;
 pub mod product;
 pub mod product_search;
 pub mod shopping_assistant;
+pub mod web;

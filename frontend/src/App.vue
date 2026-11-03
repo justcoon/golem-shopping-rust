@@ -24,35 +24,76 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="app">
-    <header class="header">
-      <nav class="nav">
-        <router-link to="/" class="logo">Golem Shopping</router-link>
-        <div class="nav-links">
-          <router-link to="/">Home</router-link>
-          <router-link to="/products">Products</router-link>
+  <div class="app-layout">
+    <!-- Modern Sticky Glassmorphism Header -->
+    <header class="navbar-header glass">
+      <div class="header-container">
+        <!-- Brand / Logo -->
+        <router-link to="/" class="brand">
+          <span class="brand-icon">🛍️</span>
+          <div class="brand-info">
+            <h1 class="gradient-text">Golem Shopping</h1>
+            <span class="tagline">Agentic Autonomous E-Commerce</span>
+          </div>
+        </router-link>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-links">
+          <router-link to="/" class="tab-link" exact-active-class="active">
+            <span class="tab-icon">🏠</span>
+            <span>Home</span>
+          </router-link>
+
+          <router-link to="/products" class="tab-link" active-class="active">
+            <span class="tab-icon">📦</span>
+            <span>Catalog</span>
+          </router-link>
+
           <router-link
             v-if="authStore.isAuthenticated"
             to="/cart"
-            class="cart-link"
+            class="tab-link cart-link"
+            active-class="active"
           >
-            Cart
-            <span v-if="cartItemCount > 0" class="cart-count">{{
-              cartItemCount
-            }}</span>
+            <span class="tab-icon">🛒</span>
+            <span>Cart</span>
+            <span v-if="cartItemCount > 0" class="cart-badge">{{ cartItemCount }}</span>
           </router-link>
-          <router-link v-if="authStore.isAuthenticated" to="/orders"
-            >My Orders</router-link
+
+          <router-link
+            v-if="authStore.isAuthenticated"
+            to="/orders"
+            class="tab-link"
+            active-class="active"
           >
-          <div v-if="authStore.isAuthenticated" class="user-info">
-            <span>User: {{ authStore.userId }} </span>
-            <button class="logout-btn" @click="handleLogout">Logout</button>
+            <span class="tab-icon">📋</span>
+            <span>My Orders</span>
+          </router-link>
+
+          <router-link
+            v-if="authStore.isAuthenticated"
+            to="/assistant"
+            class="tab-link assistant-tab-link"
+            active-class="active"
+          >
+            <span class="tab-icon">🤖</span>
+            <span>AI Assistant</span>
+          </router-link>
+        </nav>
+
+        <!-- User / Auth -->
+        <div class="header-auth">
+          <div v-if="authStore.isAuthenticated" class="user-pill">
+            <span class="user-avatar">👤</span>
+            <span class="user-id">{{ authStore.userId }}</span>
+            <button class="logout-btn" @click="handleLogout" title="Logout">✕</button>
           </div>
-          <router-link v-else to="/login" class="login-btn">Login</router-link>
+          <router-link v-else to="/login" class="btn btn-primary btn-sm"> Login </router-link>
         </div>
-      </nav>
+      </div>
     </header>
 
+    <!-- Main View Content Area -->
     <main class="main-content">
       <router-view v-slot="{ Component }">
         <transition name="fade" mode="out-in">
@@ -61,249 +102,249 @@ onMounted(() => {
       </router-view>
     </main>
 
-    <footer class="footer">
-      <div class="container">
-        <p>&copy; 2026 Golem Shopping. All rights reserved.</p>
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-container">
+        <p>
+          Built with <strong>Golem Cloud</strong>, <strong>Rust</strong> &amp;
+          <strong>Vue 3</strong>
+        </p>
       </div>
     </footer>
+
+    <!-- Floating AI Assistant Launcher -->
+    <router-link
+      v-if="authStore.isAuthenticated && router.currentRoute.value.path !== '/assistant'"
+      to="/assistant"
+      class="floating-assistant-fab"
+      title="Open AI Shopping Assistant"
+    >
+      <span class="fab-icon">🤖</span>
+      <span class="fab-text">Assistant</span>
+    </router-link>
   </div>
 </template>
 
-<style>
-:root {
-  --primary-color: #4a6fa5;
-  --secondary-color: #6c757d;
-  --success-color: #28a745;
-  --danger-color: #dc3545;
-  --light-color: #f8f9fa;
-  --dark-color: #343a40;
-  --border-radius: 4px;
-  --box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, sans-serif;
-  line-height: 1.6;
-  color: #333;
-  background-color: #f5f5f5;
-}
-
-.app {
+<style scoped>
+.app-layout {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
 }
 
-.header {
-  background-color: var(--primary-color);
-  color: white;
-  padding: 1rem 0;
-  box-shadow: var(--box-shadow);
+.navbar-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  border-radius: 0 0 20px 20px;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  background: rgba(11, 15, 25, 0.88);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.45);
 }
 
-.nav {
+.header-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 1rem;
+  padding: 14px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
 }
 
-.logo {
-  font-size: 1.5rem;
-  font-weight: bold;
-  color: white;
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   text-decoration: none;
+}
+
+.brand-icon {
+  font-size: 1.8rem;
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  padding: 6px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-info h1 {
+  font-size: 1.4rem;
+  margin: 0;
+  line-height: 1.1;
+}
+
+.tagline {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
 }
 
 .nav-links {
   display: flex;
-  gap: 1.5rem;
   align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
-.nav-links a {
-  color: white;
+.tab-link {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   text-decoration: none;
-  padding: 0.5rem 0;
-  position: relative;
-  transition: opacity 0.2s;
+  transition: all 0.2s;
 }
 
-.nav-links a:hover {
-  opacity: 0.9;
+.tab-link:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
 }
 
-.nav-links a.router-link-active {
-  font-weight: 500;
+.tab-link.active {
+  background: rgba(139, 92, 246, 0.2);
+  color: #c084fc;
+  border: 1px solid rgba(139, 92, 246, 0.35);
 }
 
-.nav-links a.router-link-active::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background-color: white;
+.assistant-tab-link {
+  background: rgba(139, 92, 246, 0.1);
+  border-color: rgba(139, 92, 246, 0.2);
+  color: #d8b4fe;
+}
+
+.assistant-tab-link:hover {
+  background: rgba(139, 92, 246, 0.25);
+  color: #ffffff;
 }
 
 .cart-link {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  position: relative;
 }
 
-.cart-count {
-  background-color: var(--danger-color);
+.cart-badge {
+  background: linear-gradient(135deg, #ec4899 0%, #ef4444 100%);
   color: white;
-  border-radius: 50%;
-  width: 20px;
-  height: 20px;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  min-width: 18px;
+  text-align: center;
+  box-shadow: 0 0 10px rgba(236, 72, 153, 0.5);
+}
+
+.header-auth {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 0.75rem;
-  font-weight: bold;
+  gap: 10px;
+}
+
+.user-pill {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  padding: 5px 12px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.user-id {
+  color: #38bdf8;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.logout-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  padding: 2px 6px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.logout-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
 }
 
 .main-content {
   flex: 1;
-  padding: 2rem 0;
+  width: 100%;
+  padding: 24px 0 40px;
 }
 
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 1rem;
-}
-
-.footer {
-  background-color: var(--dark-color);
-  color: white;
-  padding: 1.5rem 0;
+.app-footer {
+  border-top: 1px solid var(--border-color);
+  padding: 20px 0;
   text-align: center;
-  margin-top: auto;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  background: rgba(11, 15, 25, 0.6);
 }
 
-/* Transitions */
+.app-footer strong {
+  color: var(--text-muted);
+}
+
+/* Floating AI Assistant FAB */
+.floating-assistant-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  color: white;
+  border-radius: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 6px 25px rgba(139, 92, 246, 0.45);
+  cursor: pointer;
+  z-index: 999;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.floating-assistant-fab:hover {
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 10px 30px rgba(139, 92, 246, 0.6);
+}
+
+.fab-icon {
+  font-size: 20px;
+}
+
+/* Page transitions */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.2s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-}
-
-/* Buttons */
-.btn {
-  display: inline-block;
-  font-weight: 400;
-  text-align: center;
-  white-space: nowrap;
-  vertical-align: middle;
-  user-select: none;
-  border: 1px solid transparent;
-  padding: 0.375rem 0.75rem;
-  font-size: 1rem;
-  line-height: 1.5;
-  border-radius: var(--border-radius);
-  transition:
-    color 0.15s ease-in-out,
-    background-color 0.15s ease-in-out,
-    border-color 0.15s ease-in-out,
-    box-shadow 0.15s ease-in-out;
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.btn-primary {
-  color: #fff;
-  background-color: var(--primary-color);
-  border-color: var(--primary-color);
-}
-
-.btn-primary:hover {
-  background-color: #3a5a8c;
-  border-color: #365486;
-}
-
-.btn-outline-primary {
-  color: var(--primary-color);
-  border-color: var(--primary-color);
-  background-color: transparent;
-}
-
-.btn-outline-primary:hover {
-  color: #fff;
-  background-color: var(--primary-color);
-  border-color: var(--primary-color);
-}
-
-/* Utility classes */
-.text-center {
-  text-align: center;
-}
-
-.mt-1 {
-  margin-top: 0.5rem;
-}
-.mt-2 {
-  margin-top: 1rem;
-}
-.mt-3 {
-  margin-top: 1.5rem;
-}
-.mt-4 {
-  margin-top: 2rem;
-}
-
-.mb-1 {
-  margin-bottom: 0.5rem;
-}
-.mb-2 {
-  margin-bottom: 1rem;
-}
-.mb-3 {
-  margin-bottom: 1.5rem;
-}
-.mb-4 {
-  margin-bottom: 2rem;
-}
-
-.flex {
-  display: flex;
-}
-
-.items-center {
-  align-items: center;
-}
-
-.justify-between {
-  justify-content: space-between;
-}
-
-.gap-1 {
-  gap: 0.5rem;
-}
-.gap-2 {
-  gap: 1rem;
-}
-.gap-3 {
-  gap: 1.5rem;
-}
-.gap-4 {
-  gap: 2rem;
+  transform: translateY(4px);
 }
 </style>

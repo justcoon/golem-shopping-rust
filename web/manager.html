@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Golem Store Manager</title>
+    <link rel="stylesheet" href="/manager/assets/assistant.css" />
+    <script type="module" src="/manager/assets/manager.js"></script>
+  </head>
+  <body>
+    <div class="app-layout">
+      <!-- Header -->
+      <header class="app-header">
+        <div class="header-brand">
+          <div class="brand-icon">🛠️</div>
+          <div>
+            <h1>Store Manager Assistant</h1>
+            <p class="subtitle">Operations &amp; Order Management · Powered by Golem</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <div class="user-control">
+            <label for="manager-id">Manager ID:</label>
+            <input
+              id="manager-id"
+              type="text"
+              value="manager-1"
+              title="Manager session identifier"
+              spellcheck="false"
+            />
+          </div>
+          <button id="clear-btn" class="btn btn-outline" title="Reset conversation history">
+            Clear History
+          </button>
+          <span id="agent-status" class="status-badge status-ready" role="status">Ready</span>
+        </div>
+      </header>
+
+      <!-- Main Container -->
+      <div class="main-container">
+        <!-- Chat Panel -->
+        <main class="chat-panel">
+          <div id="messages-container" class="messages-container" aria-live="polite">
+            <div id="welcome-message" class="welcome-box">
+              <div class="welcome-icon">📋</div>
+              <h2>Store Operations &amp; Management</h2>
+              <p>
+                I can help you search, inspect, modify, cancel, and ship orders, as well as check catalog specs and live inventory allocations. What would you like to manage?
+              </p>
+              <div class="suggestion-chips">
+                <button class="chip" data-prompt="List recent orders across the store">
+                  📦 Recent orders
+                </button>
+                <button class="chip" data-prompt="Find all orders with status 'new' and list their details">
+                  🚚 Orders ready to ship
+                </button>
+                <button class="chip" data-prompt="Check inventory for AirPods Pro (ap001)">
+                  📊 Check inventory
+                </button>
+                <button class="chip" data-prompt="Show all cancelled orders">
+                  ❌ Cancelled orders
+                </button>
+              </div>
+            </div>
+            <!-- Messages rendered dynamically here -->
+          </div>
+
+          <!-- Input Bar -->
+          <footer class="input-panel">
+            <form id="chat-form" class="chat-form">
+              <textarea
+                id="message-input"
+                placeholder="Instruct the manager assistant (e.g., 'Ship order ord-1001', 'Change quantity of ap001 to 2 in order ord-1002')..."
+                rows="1"
+                required
+              ></textarea>
+              <button id="send-btn" type="submit" class="btn btn-primary">
+                <span>Send</span>
+                <span class="send-icon">↑</span>
+              </button>
+            </form>
+          </footer>
+        </main>
+
+        <!-- Sidebar (Management Quick Actions & Operations Guide) -->
+        <aside class="sidebar-panel">
+          <section class="sidebar-section">
+            <h3>Quick Actions</h3>
+            <div class="quick-action-list">
+              <button class="action-btn" data-prompt="List recent orders across the store">
+                📦 List Recent Orders
+              </button>
+              <button class="action-btn" data-prompt="Find all orders with status 'new' and list their details">
+                🚚 Pending Shipments
+              </button>
+              <button class="action-btn" data-prompt="Find all orders with status 'shipped'">
+                ✅ Completed Shipments
+              </button>
+              <button class="action-btn" data-prompt="Find all orders with status 'cancelled'">
+                ❌ Cancelled Orders
+              </button>
+              <button class="action-btn" data-prompt="Search for products in the catalog">
+                🔍 Search Catalog
+              </button>
+            </div>
+          </section>
+
+          <section class="sidebar-section">
+            <h3>Operations Guide</h3>
+            <div class="quick-action-list" style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.6;">
+              <p>💡 <b>Order Fulfillment</b>: Ask me to <code>ship order &lt;orderId&gt;</code> to mark as shipped and fulfill inventory.</p>
+              <p>💡 <b>Order Cancellation</b>: Ask me to <code>cancel order &lt;orderId&gt;</code> to release inventory allocations.</p>
+              <p>💡 <b>Order Modifications</b>: For 'new' orders, you can add items, change quantities, remove items, or update customer shipping addresses.</p>
+              <p>💡 <b>Inventory Inspection</b>: Ask for available quantity by product ID to see real-time unallocated stock.</p>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </div>
+  </body>
+</html>
+

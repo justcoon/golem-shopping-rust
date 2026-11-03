@@ -30,3 +30,16 @@ plan:
     with_items_from_csv:
       file_name: ./fixtures/prices.csv
       quote_char: "'"
+
+  - name: Create inventory, index {{ index }}
+    request:
+      url: /v1/inventory/{{ item.product_id }}
+      method: POST
+      body: '{{ item.body }}'
+      headers:
+        host: '{{ API_HOST }}'
+        Content-Type: 'application/json'
+        Accept: 'application/json'
+    with_items_from_csv:
+      file_name: ./fixtures/inventory.csv
+      quote_char: "'"

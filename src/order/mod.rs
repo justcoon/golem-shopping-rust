@@ -1,9 +1,10 @@
-use crate::common::{Address, CURRENCY_DEFAULT, PRICING_REGION_DEFAULT};
+use crate::common::{Address, CURRENCY_DEFAULT, INVENTORY_REGION_DEFAULT, PRICING_REGION_DEFAULT};
+use crate::inventory::InventoryAgentClient;
 use crate::pricing::PricingAgentClient;
 use crate::product::ProductAgentClient;
 use email_address::EmailAddress;
 use futures::future::join;
-use golem_rust::{Schema, agent_definition, agent_implementation, endpoint};
+use golem_rust::{Schema, agent_definition, agent_implementation, endpoint, read_only};
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -114,7 +115,7 @@ pub struct OrderItem {
     pub quantity: u32,
 }
 
-#[derive(Schema, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Schema, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Debug)]
 pub enum OrderStatus {
     New,
     Shipped,
@@ -212,11 +213,20 @@ pub struct BillingAddressNotSetError {
 pub struct EmptyEmailError {
     pub message: String,
 }
+#[derive(Schema, Clone, Serialize, Deserialize, Debug)]
+pub struct InsufficientInventoryError {
+    pub message: String,
+    pub product_id: String,
+    pub requested: u32,
+    pub available: u32,
+}
+
 #[derive(Schema, Clone)]
 pub enum AddItemError {
     ProductNotFound(ProductNotFoundError),
     PricingNotFound(PricingNotFoundError),
     ActionNotAllowed(ActionNotAllowedError),
+    InsufficientInventory(InsufficientInventoryError),
 }
 #[derive(Schema, Clone)]
 pub enum RemoveItemError {
@@ -239,6 +249,7 @@ pub enum UpdateEmailError {
 pub enum UpdateItemQuantityError {
     ItemNotFound(ItemNotFoundError),
     ActionNotAllowed(ActionNotAllowedError),
+    InsufficientInventory(InsufficientInventoryError),
 }
 #[derive(Schema, Clone)]
 pub enum CancelOrderError {
@@ -247,6 +258,7 @@ pub enum CancelOrderError {
 #[derive(Schema, Clone)]
 pub enum InitOrderError {
     ActionNotAllowed(ActionNotAllowedError),
+    InsufficientInventory(InsufficientInventoryError),
 }
 #[derive(Schema, Clone)]
 pub enum UpdateAddressError {
@@ -271,10 +283,12 @@ fn get_total_price(items: Vec<OrderItem>) -> f32 {
 }
 
 #[agent_definition(mount = "/v1/order/{id}")]
-trait OrderAgent {
+pub trait OrderAgent {
     fn new(id: String) -> Self;
-    fn initialize_order(&mut self, data: CreateOrder) -> Result<OrderUpdated, InitOrderError>;
+    async fn initialize_order(&mut self, data: CreateOrder)
+    -> Result<OrderUpdated, InitOrderError>;
 
+    #[read_only]
     #[endpoint(get = "/")]
     fn get_order(&self) -> Option<Order>;
 
@@ -303,7 +317,7 @@ trait OrderAgent {
         phone_number: Option<String>,
     ) -> Result<OrderUpdated, UpdateAddressError>;
 
-    fn update_item_quantity(
+    async fn update_item_quantity(
         &mut self,
         product_id: String,
         quantity: u32,
@@ -357,30 +371,77 @@ impl OrderAgent for OrderAgentImpl {
         self.state.clone()
     }
 
-    fn initialize_order(&mut self, data: CreateOrder) -> Result<OrderUpdated, InitOrderError> {
-        self.with_state(|state| {
-            info!(
-                "Initializing order {} for user {}",
-                state.order_id, data.user_id
-            );
-            if state.order_status == OrderStatus::New {
-                state.user_id = data.user_id;
-                state.email = data.email;
-                state.items = data.items;
-                state.billing_address = data.billing_address;
-                state.shipping_address = data.shipping_address;
-                state.total = data.total;
-                state.currency = data.currency;
+    async fn initialize_order(
+        &mut self,
+        data: CreateOrder,
+    ) -> Result<OrderUpdated, InitOrderError> {
+        let state = self.get_state();
+        info!(
+            "Initializing order {} for user {}",
+            state.order_id, data.user_id
+        );
+        if state.order_status != OrderStatus::New {
+            return Err(InitOrderError::ActionNotAllowed(
+                ActionNotAllowedError::new(state.order_status),
+            ));
+        }
 
-                Ok(OrderUpdated {
-                    order_id: state.order_id.clone(),
-                    user_id: state.user_id.clone(),
-                })
-            } else {
-                Err(InitOrderError::ActionNotAllowed(
-                    ActionNotAllowedError::new(state.order_status),
-                ))
+        let order_id = state.order_id.clone();
+        let region = INVENTORY_REGION_DEFAULT.to_string();
+
+        let mut reserved_products: Vec<String> = Vec::new();
+
+        for item in &data.items {
+            let mut inv_client = InventoryAgentClient::get(item.product_id.clone());
+            let res = inv_client
+                .reserve_quantity(order_id.clone(), region.clone(), item.quantity)
+                .await;
+
+            match res {
+                Ok(_) => {
+                    reserved_products.push(item.product_id.clone());
+                }
+                Err(err) => {
+                    for prev_pid in reserved_products {
+                        InventoryAgentClient::get(prev_pid)
+                            .trigger_release_reservation(order_id.clone());
+                    }
+
+                    let (requested, available) = match err {
+                        crate::inventory::ReserveQuantityError::InsufficientInventory(e) => {
+                            (e.requested, e.available)
+                        }
+                        crate::inventory::ReserveQuantityError::InventoryNotFound(_) => {
+                            (item.quantity, 0)
+                        }
+                    };
+
+                    return Err(InitOrderError::InsufficientInventory(
+                        InsufficientInventoryError {
+                            message: format!(
+                                "Insufficient inventory for product {} in region {}",
+                                item.product_id, region
+                            ),
+                            product_id: item.product_id.clone(),
+                            requested,
+                            available,
+                        },
+                    ));
+                }
             }
+        }
+
+        state.user_id = data.user_id;
+        state.email = data.email;
+        state.items = data.items;
+        state.billing_address = data.billing_address;
+        state.shipping_address = data.shipping_address;
+        state.total = data.total;
+        state.currency = data.currency;
+
+        Ok(OrderUpdated {
+            order_id: state.order_id.clone(),
+            user_id: state.user_id.clone(),
         })
     }
 
@@ -425,6 +486,43 @@ impl OrderAgent for OrderAgentImpl {
         );
 
         if state.order_status == OrderStatus::New {
+            let current_qty = state
+                .items
+                .iter()
+                .find(|i| i.product_id == product_id)
+                .map(|i| i.quantity)
+                .unwrap_or(0);
+            let desired_qty = current_qty + quantity;
+
+            let region = INVENTORY_REGION_DEFAULT.to_string();
+
+            let mut inv_client = InventoryAgentClient::get(product_id.clone());
+            let reserve_res = inv_client
+                .reserve_quantity(state.order_id.clone(), region.clone(), desired_qty)
+                .await;
+
+            if let Err(err) = reserve_res {
+                let (requested, available) = match err {
+                    crate::inventory::ReserveQuantityError::InsufficientInventory(e) => {
+                        (e.requested, e.available)
+                    }
+                    crate::inventory::ReserveQuantityError::InventoryNotFound(_) => {
+                        (desired_qty, 0)
+                    }
+                };
+                return Err(AddItemError::InsufficientInventory(
+                    InsufficientInventoryError {
+                        message: format!(
+                            "Insufficient inventory for product {} in region {}",
+                            product_id, region
+                        ),
+                        product_id,
+                        requested,
+                        available,
+                    },
+                ));
+            }
+
             let updated = state.update_item_quantity(product_id.clone(), quantity, true);
 
             if !updated {
@@ -472,28 +570,29 @@ impl OrderAgent for OrderAgentImpl {
     }
 
     fn remove_item(&mut self, product_id: String) -> Result<OrderUpdated, RemoveItemError> {
-        self.with_state(|state| {
-            info!(
-                "Removing item with product {} from the order {} of user {}",
-                product_id, state.order_id, state.user_id
-            );
-            if state.order_status == OrderStatus::New {
-                if state.remove_item(product_id.clone()) {
-                    Ok(OrderUpdated {
-                        order_id: state.order_id.clone(),
-                        user_id: state.user_id.clone(),
-                    })
-                } else {
-                    Err(RemoveItemError::ItemNotFound(ItemNotFoundError::new(
-                        product_id,
-                    )))
-                }
+        let state = self.get_state();
+        info!(
+            "Removing item with product {} from the order {} of user {}",
+            product_id, state.order_id, state.user_id
+        );
+        if state.order_status == OrderStatus::New {
+            let order_id = state.order_id.clone();
+            if state.remove_item(product_id.clone()) {
+                InventoryAgentClient::get(product_id).trigger_release_reservation(order_id.clone());
+                Ok(OrderUpdated {
+                    order_id,
+                    user_id: state.user_id.clone(),
+                })
             } else {
-                Err(RemoveItemError::ActionNotAllowed(
-                    ActionNotAllowedError::new(state.order_status),
-                ))
+                Err(RemoveItemError::ItemNotFound(ItemNotFoundError::new(
+                    product_id,
+                )))
             }
-        })
+        } else {
+            Err(RemoveItemError::ActionNotAllowed(
+                ActionNotAllowedError::new(state.order_status),
+            ))
+        }
     }
 
     fn update_billing_address(
@@ -534,35 +633,61 @@ impl OrderAgent for OrderAgentImpl {
         })
     }
 
-    fn update_item_quantity(
+    async fn update_item_quantity(
         &mut self,
         product_id: String,
         quantity: u32,
     ) -> Result<OrderUpdated, UpdateItemQuantityError> {
-        self.with_state(|state| {
-            info!(
-                "Updating quantity of item with product {} to {} in the order {} of user {}",
-                product_id, quantity, state.order_id, state.user_id
-            );
-            if state.order_status == OrderStatus::New {
-                let updated = state.update_item_quantity(product_id.clone(), quantity, false);
-
-                if updated {
-                    Ok(OrderUpdated {
-                        order_id: state.order_id.clone(),
-                        user_id: state.user_id.clone(),
-                    })
-                } else {
-                    Err(UpdateItemQuantityError::ItemNotFound(
-                        ItemNotFoundError::new(product_id),
-                    ))
-                }
-            } else {
-                Err(UpdateItemQuantityError::ActionNotAllowed(
-                    ActionNotAllowedError::new(state.order_status),
-                ))
+        let state = self.get_state();
+        info!(
+            "Updating quantity of item with product {} to {} in the order {} of user {}",
+            product_id, quantity, state.order_id, state.user_id
+        );
+        if state.order_status == OrderStatus::New {
+            let item_exists = state.items.iter().any(|i| i.product_id == product_id);
+            if !item_exists {
+                return Err(UpdateItemQuantityError::ItemNotFound(
+                    ItemNotFoundError::new(product_id),
+                ));
             }
-        })
+
+            let region = INVENTORY_REGION_DEFAULT.to_string();
+
+            let mut inv_client = InventoryAgentClient::get(product_id.clone());
+            let reserve_res = inv_client
+                .reserve_quantity(state.order_id.clone(), region.clone(), quantity)
+                .await;
+
+            if let Err(err) = reserve_res {
+                let (requested, available) = match err {
+                    crate::inventory::ReserveQuantityError::InsufficientInventory(e) => {
+                        (e.requested, e.available)
+                    }
+                    crate::inventory::ReserveQuantityError::InventoryNotFound(_) => (quantity, 0),
+                };
+                return Err(UpdateItemQuantityError::InsufficientInventory(
+                    InsufficientInventoryError {
+                        message: format!(
+                            "Insufficient inventory for product {} in region {}",
+                            product_id, region
+                        ),
+                        product_id,
+                        requested,
+                        available,
+                    },
+                ));
+            }
+
+            state.update_item_quantity(product_id, quantity, false);
+            Ok(OrderUpdated {
+                order_id: state.order_id.clone(),
+                user_id: state.user_id.clone(),
+            })
+        } else {
+            Err(UpdateItemQuantityError::ActionNotAllowed(
+                ActionNotAllowedError::new(state.order_status),
+            ))
+        }
     }
 
     fn update_shipping_address(
@@ -604,66 +729,68 @@ impl OrderAgent for OrderAgentImpl {
     }
 
     fn ship_order(&mut self) -> Result<OrderUpdated, ShipOrderError> {
-        self.with_state(|state| {
-            info!(
-                "Shipping order {} of user {}",
-                state.order_id, state.user_id
-            );
-            if state.order_status != OrderStatus::New {
-                Err(ShipOrderError::ActionNotAllowed(
-                    ActionNotAllowedError::new(state.order_status),
-                ))
-            } else if state.items.is_empty() {
-                Err(ShipOrderError::EmptyItems(EmptyItemsError {
-                    message: "Empty items".to_string(),
-                }))
-            } else if state.billing_address.is_none() {
-                Err(ShipOrderError::BillingAddressNotSet(
-                    BillingAddressNotSetError {
-                        message: "Billing address not set".to_string(),
-                    },
-                ))
-            } else if state.email.is_none() {
-                Err(ShipOrderError::EmptyEmail(EmptyEmailError {
-                    message: "Email not set".to_string(),
-                }))
-            } else {
-                state.set_order_status(OrderStatus::Shipped);
-                Ok(OrderUpdated {
-                    order_id: state.order_id.clone(),
-                    user_id: state.user_id.clone(),
-                })
+        let state = self.get_state();
+        info!(
+            "Shipping order {} of user {}",
+            state.order_id, state.user_id
+        );
+        if state.order_status != OrderStatus::New {
+            Err(ShipOrderError::ActionNotAllowed(
+                ActionNotAllowedError::new(state.order_status),
+            ))
+        } else if state.items.is_empty() {
+            Err(ShipOrderError::EmptyItems(EmptyItemsError {
+                message: "Empty items".to_string(),
+            }))
+        } else if state.billing_address.is_none() {
+            Err(ShipOrderError::BillingAddressNotSet(
+                BillingAddressNotSetError {
+                    message: "Billing address not set".to_string(),
+                },
+            ))
+        } else if state.email.is_none() {
+            Err(ShipOrderError::EmptyEmail(EmptyEmailError {
+                message: "Email not set".to_string(),
+            }))
+        } else {
+            let order_id = state.order_id.clone();
+            for item in &state.items {
+                InventoryAgentClient::get(item.product_id.clone())
+                    .trigger_fulfill_reservation(order_id.clone());
             }
-        })
+
+            state.set_order_status(OrderStatus::Shipped);
+            Ok(OrderUpdated {
+                order_id: state.order_id.clone(),
+                user_id: state.user_id.clone(),
+            })
+        }
     }
 
     fn cancel_order(&mut self) -> Result<OrderUpdated, CancelOrderError> {
-        self.with_state(|state| {
-            info!(
-                "Cancelling order {} of user {}",
-                state.order_id, state.user_id
-            );
+        let state = self.get_state();
+        info!(
+            "Cancelling order {} of user {}",
+            state.order_id, state.user_id
+        );
 
-            if state.order_status == OrderStatus::New {
-                info!(
-                    "Cancelling order {} of user {}",
-                    state.order_id, state.user_id
-                );
-                state.set_order_status(OrderStatus::Cancelled);
-                Ok(OrderUpdated {
-                    order_id: state.order_id.clone(),
-                    user_id: state.user_id.clone(),
-                })
-            } else {
-                info!(
-                    "Cancelling order {} of user {}",
-                    state.order_id, state.user_id
-                );
-                Err(CancelOrderError::ActionNotAllowed(
-                    ActionNotAllowedError::new(state.order_status),
-                ))
+        if state.order_status == OrderStatus::New {
+            let order_id = state.order_id.clone();
+            for item in &state.items {
+                InventoryAgentClient::get(item.product_id.clone())
+                    .trigger_release_reservation(order_id.clone());
             }
-        })
+
+            state.set_order_status(OrderStatus::Cancelled);
+            Ok(OrderUpdated {
+                order_id: state.order_id.clone(),
+                user_id: state.user_id.clone(),
+            })
+        } else {
+            Err(CancelOrderError::ActionNotAllowed(
+                ActionNotAllowedError::new(state.order_status),
+            ))
+        }
     }
 
     async fn load_snapshot(

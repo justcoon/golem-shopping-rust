@@ -39,11 +39,7 @@ export const useCartStore = defineStore("cart", () => {
     }
   };
 
-  const addItem = async (
-    userId: string,
-    productId: string,
-    quantity: number = 1,
-  ) => {
+  const addItem = async (userId: string, productId: string, quantity: number = 1) => {
     try {
       await addToCartApi(userId, productId, quantity);
       await fetchCart(userId);
@@ -65,11 +61,7 @@ export const useCartStore = defineStore("cart", () => {
     }
   };
 
-  const updateItem = async (
-    userId: string,
-    productId: string,
-    quantity: number,
-  ) => {
+  const updateItem = async (userId: string, productId: string, quantity: number) => {
     try {
       if (quantity <= 0) {
         // If quantity is 0 or negative, remove the item from the cart
@@ -105,9 +97,7 @@ export const useCartStore = defineStore("cart", () => {
       isLoading.value = true;
       error.value = null;
       await updateBillingAddressApi(userId, address);
-      if (cart.value) {
-        cart.value["billing_address"] = address;
-      }
+      await fetchCart(userId);
     } catch (err) {
       error.value = err as Error;
       console.error("Error updating billing address:", err);
@@ -122,9 +112,7 @@ export const useCartStore = defineStore("cart", () => {
       isLoading.value = true;
       error.value = null;
       await updateShippingAddressApi(userId, address);
-      if (cart.value) {
-        cart.value["shipping_address"] = address;
-      }
+      await fetchCart(userId);
     } catch (err) {
       error.value = err as Error;
       console.error("Error updating shipping address:", err);

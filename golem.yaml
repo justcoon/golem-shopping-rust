@@ -29,11 +29,26 @@ components:
     #     RENAMED_VAR_2: "{{ ENV_VAR_2 }}"
     #     COMPOSED_VAR_3: "{{ ENV_VAR_3 }}-{{ ENV_VAR_4}}"
     #\
+agents:
+  WebAssistant:
+    files:
+      - sourcePath: ./web
+        targetPath: /web
+        permissions: read-only
+  WebManager:
+    files:
+      - sourcePath: ./web
+        targetPath: /web
+        permissions: read-only
+
 secretDefaults:
   local:
     llm:
-      apiKey: '{{ OPENROUTER_KEY }}'
-      model: "openrouter/owl-alpha"
+      #      apiKey: '{{ OPENROUTER_KEY }}'
+      #      model: "openrouter/free"
+      apiKey: '{{ GEMINI_API_KEY }}'
+      model: "gemini-3.1-flash-lite"
+      apiUrl: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 httpApi:
   deployments:
     local:
@@ -41,7 +56,12 @@ httpApi:
       agents:
         ProductAgent: {}
         PricingAgent: {}
+        InventoryAgent: {}
         ProductSearchAgent: {}
         CartAgent: {}
         OrderAgent: {}
+        OrderSearchAgent: {}
         ShoppingAssistantAgent: {}
+        ManagerAgent: {}
+        WebAssistant: {}
+        WebManager: {}
