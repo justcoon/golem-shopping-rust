@@ -140,6 +140,7 @@ jobs:
       - name: Deploy components
         env:
           OPENROUTER_KEY: "key"
+          GEMINI_API_KEY: "key"
         run: golem deploy --reset --yes
       - name: Smoke test deployment
         run: |
