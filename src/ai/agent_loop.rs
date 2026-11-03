@@ -242,6 +242,38 @@ pub trait ToolDispatcher {
     fn execute(&self, name: &str, arguments: &str) -> impl Future<Output = (String, String)>;
 }
 
+#[derive(Default, Clone, Copy, Debug)]
+pub struct NoopDispatcher;
+
+impl ToolDispatcher for NoopDispatcher {
+    async fn execute(&self, _name: &str, _arguments: &str) -> (String, String) {
+        (String::new(), String::new())
+    }
+}
+
+pub fn extract_json_str(text: &str) -> &str {
+    let trimmed = text.trim();
+    if let Some(start) = trimmed.find("```json") {
+        let after_fence = &trimmed[start + 7..];
+        if let Some(end) = after_fence.rfind("```") {
+            return after_fence[..end].trim();
+        }
+    } else if let Some(start) = trimmed.find("```") {
+        let after_fence = &trimmed[start + 3..];
+        if let Some(end) = after_fence.rfind("```") {
+            return after_fence[..end].trim();
+        }
+    }
+
+    if let (Some(first_brace), Some(last_brace)) = (trimmed.find('{'), trimmed.rfind('}'))
+        && first_brace <= last_brace
+    {
+        return &trimmed[first_brace..=last_brace];
+    }
+
+    trimmed
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
     system_prompt: &str,
@@ -695,5 +727,28 @@ mod tests {
             serialized["extra_content"]["google"]["thought_signature"],
             "skip_thought_signature_validator"
         );
+    }
+
+    #[test]
+    fn test_extract_json_str() {
+        let raw_json = r#"{"product_ids":["p1"],"product_brands":["b1"]}"#;
+        assert_eq!(extract_json_str(raw_json), raw_json);
+
+        let fenced_json = format!("```json\n{raw_json}\n```");
+        assert_eq!(extract_json_str(&fenced_json), raw_json);
+
+        let fenced_no_lang = format!("```\n{raw_json}\n```");
+        assert_eq!(extract_json_str(&fenced_no_lang), raw_json);
+
+        let text_around = format!("Here are recommendations:\n{raw_json}\nHope this helps!");
+        assert_eq!(extract_json_str(&text_around), raw_json);
+    }
+
+    #[wstd::test]
+    async fn test_noop_dispatcher() {
+        let dispatcher = NoopDispatcher;
+        let (res, summary) = dispatcher.execute("any_tool", "{}").await;
+        assert_eq!(res, "");
+        assert_eq!(summary, "");
     }
 }

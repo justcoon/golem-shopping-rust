@@ -1,21 +1,17 @@
 pub mod tools;
 
 use crate::ai::{
-    AgentConfig, ChatChunk, ChatMessage, ChatResponse, ChatTurnResult, LlmConfig, ToolDispatcher,
-    process_chat_turn,
+    AgentConfig, ChatChunk, ChatMessage, ChatResponse, ChatTurnResult, LlmConfig, NoopDispatcher,
+    ToolDispatcher, execute_agent_chat_turn, extract_json_str, process_chat_turn,
 };
 use crate::cart::CartAgentClient;
 use crate::order::{OrderAgentClient, OrderItem};
 use futures::future::join_all;
-use golem_ai_llm::LlmProvider;
-use golem_ai_llm::config::SecretSource;
 use golem_rust::agentic::{AgentStream, Config};
-use golem_rust::retry::*;
 use golem_rust::{Schema, agent_definition, agent_implementation, endpoint, read_only};
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Duration;
 use tools::*;
 
 pub const RECOMMENDATION_INPUT_COUNT: u8 = 100;
@@ -71,35 +67,9 @@ async fn get_llm_recommendations(
     items: Vec<OrderItem>,
     config: LlmConfig,
 ) -> Result<LlmRecommendedItems, String> {
-    use golem_ai_llm::model::*;
     log::info!("LLM recommendations - items: {}", items.len());
     let current_items: Vec<LlmOrderItem> = items.into_iter().map(LlmOrderItem::from).collect();
     let current_items_string = serde_json::to_string(&current_items).map_err(|e| e.to_string())?;
-
-    let policy = NamedPolicy::named(
-        "shopping-assistant-llm-retry",
-        Policy::exponential(Duration::from_millis(200), 2.0)
-            .clamp(Duration::from_millis(100), Duration::from_secs(5))
-            .with_jitter(0.15)
-            .max_retries(5),
-    );
-
-    let provider_config = golem_ai_llm_openrouter::OpenRouterConfig {
-        api_key: SecretSource::from_handle(config.api_key),
-    };
-
-    let config = Config {
-        model: config.model.get().map_err(|e| format!("{e:?}"))?,
-        max_tokens: None,
-        temperature: None,
-        stop_sequences: None,
-        tools: None,
-        tool_choice: None,
-        provider_options: Some(vec![Kv {
-            key: "responseFormat".to_string(),
-            value: "json_object".to_string(),
-        }]),
-    };
 
     let schema = schema_for!(LlmRecommendedItems);
     let schema_json = serde_json::to_string_pretty(&schema).map_err(|e| e.to_string())?;
@@ -112,12 +82,6 @@ async fn get_llm_recommendations(
         "#
     );
 
-    let system_event = Event::Message(Message {
-        role: Role::System,
-        name: None,
-        content: vec![ContentPart::Text(system_message.to_string())],
-    });
-
     let user_message = format!(
         r#"
            We have a list of order items: {current_items_string}.
@@ -127,51 +91,33 @@ async fn get_llm_recommendations(
         "#
     );
 
-    let user_event = Event::Message(Message {
-        role: Role::User,
-        name: None,
-        content: vec![ContentPart::Text(user_message.to_string())],
-    });
+    let api_key = config.api_key.get().unwrap_or_default();
+    let model = config.model.get().unwrap_or_default();
+    let api_url = config.api_url.get().ok();
 
-    let llm_response = with_named_policy_async(&policy, async || {
-        golem_ai_llm_openrouter::DurableOpenRouter::send(
-            provider_config,
-            vec![system_event, user_event],
-            config,
-        )
-        .await
-        .expect("LLM recommendations")
-    })
+    let result = execute_agent_chat_turn(
+        &system_message,
+        &[],
+        &api_key,
+        &model,
+        api_url.as_deref(),
+        &[],
+        &user_message,
+        Some("Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets."),
+        &NoopDispatcher,
+    )
     .await;
 
-    match llm_response {
-        Ok(response) => {
-            let response_content = response
-                .content
-                .iter()
-                .filter_map(|part| match part {
-                    ContentPart::Text(text) => Some(text.clone()),
-                    _ => None,
-                })
-                .collect::<String>();
-
-            let json_str = response_content
-                .trim()
-                .strip_prefix("```json")
-                .and_then(|s| s.strip_suffix("```"))
-                .unwrap_or(&response_content)
-                .trim();
-
-            serde_json::from_str(json_str).map_err(|e| {
-                log::error!("LLM recommendations - response: {}, error: {}", json_str, e);
-                e.to_string()
-            })
-        }
-        Err(e) => {
-            log::error!("LLM recommendations - error: {}", e);
-            Err(e.to_string())
-        }
+    if result.is_error {
+        log::error!("LLM recommendations failed: {}", result.reply);
+        return Err(result.reply);
     }
+
+    let json_str = extract_json_str(&result.reply);
+    serde_json::from_str(json_str).map_err(|e| {
+        log::error!("LLM recommendations - response: {}, error: {}", json_str, e);
+        e.to_string()
+    })
 }
 
 #[derive(Serialize, Deserialize, Clone)]

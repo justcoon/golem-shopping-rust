@@ -44,9 +44,9 @@ export const useAssistantStore = defineStore("assistant", () => {
       const raw = await getAssistantHistory(authStore.userId);
       messages.value = Array.isArray(raw)
         ? raw.map((m: any) => ({
-            ...m,
-            role: (m.role || "").toLowerCase(),
-          }))
+          ...m,
+          role: (m.role || "").toLowerCase(),
+        }))
         : [];
     } catch (err) {
       console.warn("Could not fetch assistant history:", err);
