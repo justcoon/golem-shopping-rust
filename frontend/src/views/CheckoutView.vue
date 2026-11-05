@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from "vue";
+import { ref, onMounted, onUnmounted, watch, computed } from "vue";
 import { useRouter } from "vue-router";
 import { useCartStore } from "@/stores/cartStore";
 import { useAuthStore } from "@/stores/authStore";
@@ -14,6 +14,55 @@ const currentUserId = authStore.userId;
 const cart = computed(() => cartStore.cart);
 const isSubmitting = ref(false);
 const sameAsBilling = ref(true);
+
+const isCheckoutActive = computed(() => cartStore.isCheckoutActive);
+const activeDraft = computed(() => cartStore.activeDraft);
+
+// Timer for reservation countdown
+const secondsRemaining = ref<number>(0);
+let timerInterval: ReturnType<typeof setInterval> | null = null;
+
+function updateCountdown() {
+  if (!activeDraft.value) {
+    secondsRemaining.value = 0;
+    return;
+  }
+  const exp = new Date(activeDraft.value.expires_at).getTime();
+  const diff = Math.max(0, Math.floor((exp - Date.now()) / 1000));
+  secondsRemaining.value = diff;
+}
+
+const formattedCountdown = computed(() => {
+  const mins = Math.floor(secondsRemaining.value / 60);
+  const secs = secondsRemaining.value % 60;
+  return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+});
+
+watch(
+  activeDraft,
+  (draft) => {
+    if (draft) {
+      updateCountdown();
+      if (!timerInterval) {
+        timerInterval = setInterval(updateCountdown, 1000);
+      }
+    } else {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+      secondsRemaining.value = 0;
+    }
+  },
+  { immediate: true },
+);
+
+onUnmounted(() => {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+});
 
 // Shipping address
 const shipping = ref<Address & { email: string }>({
@@ -64,7 +113,7 @@ onMounted(() => {
   }
 });
 
-async function submitOrder() {
+async function prepareOrder() {
   if (!cart.value) return;
 
   isSubmitting.value = true;
@@ -80,8 +129,20 @@ async function submitOrder() {
     await cartStore.updateShippingAddress(currentUserId, shippingAddressOnly);
     await cartStore.updateBillingAddress(currentUserId, billingAddressOnly);
 
-    const order = await cartStore.checkout(currentUserId);
+    await cartStore.prepareCheckout(currentUserId);
+  } catch (error) {
+    console.error("Prepare checkout failed:", error);
+  } finally {
+    isSubmitting.value = false;
+  }
+}
 
+async function confirmOrder() {
+  if (!activeDraft.value) return;
+
+  isSubmitting.value = true;
+  try {
+    const order = await cartStore.confirmCheckout(currentUserId, activeDraft.value.order_id);
     if (order && order.order_id) {
       await cartStore.clearCart();
       await router.push({
@@ -92,9 +153,30 @@ async function submitOrder() {
       await router.push({ name: "orders" });
     }
   } catch (error) {
-    console.error("Checkout failed:", error);
+    console.error("Confirm checkout failed:", error);
   } finally {
     isSubmitting.value = false;
+  }
+}
+
+async function cancelOrder() {
+  if (!activeDraft.value) return;
+
+  isSubmitting.value = true;
+  try {
+    await cartStore.cancelCheckout(currentUserId, activeDraft.value.order_id);
+  } catch (error) {
+    console.error("Cancel checkout failed:", error);
+  } finally {
+    isSubmitting.value = false;
+  }
+}
+
+function handleFormSubmit() {
+  if (isCheckoutActive.value) {
+    confirmOrder();
+  } else {
+    prepareOrder();
   }
 }
 </script>
@@ -114,10 +196,24 @@ async function submitOrder() {
       <router-link to="/products" class="btn btn-primary">Shop Now</router-link>
     </div>
 
+    <!-- Active Reservation Banner -->
+    <div v-if="cart?.items?.length && isCheckoutActive && activeDraft" class="reservation-banner glass-card">
+      <div class="banner-left">
+        <span class="timer-icon">⏱️</span>
+        <div>
+          <h3>Order #{{ activeDraft.order_id }} is Reserved</h3>
+          <p>Inventory held exclusively for you. Please review and confirm your order before the hold expires.</p>
+        </div>
+      </div>
+      <div class="banner-right">
+        <span class="countdown-badge">{{ formattedCountdown }}</span>
+      </div>
+    </div>
+
     <!-- Checkout Grid -->
-    <div v-else class="checkout-grid">
+    <div v-if="cart?.items?.length" class="checkout-grid">
       <!-- Checkout Form -->
-      <form class="checkout-form glass-card" @submit.prevent="submitOrder">
+      <form class="checkout-form glass-card" @submit.prevent="handleFormSubmit">
         <div class="form-section-title">
           <span class="icon">📦</span>
           <h2>Shipping Information</h2>
@@ -300,12 +396,26 @@ async function submitOrder() {
           </div>
         </div>
 
-        <button type="submit" :disabled="isSubmitting" class="btn btn-primary submit-btn">
-          <span v-if="isSubmitting" class="spinner"></span>
-          <span v-else>
-            Authorize Payment & Checkout ({{ formatPrice(cart.total, cart.currency) }})
-          </span>
-        </button>
+        <div class="action-buttons-group">
+          <button type="submit" :disabled="isSubmitting" class="btn btn-primary submit-btn">
+            <span v-if="isSubmitting" class="spinner"></span>
+            <span v-else-if="isCheckoutActive">
+              Confirm & Place Order ({{ formatPrice(cart.total, cart.currency) }})
+            </span>
+            <span v-else>
+              Review & Reserve Items ({{ formatPrice(cart.total, cart.currency) }})
+            </span>
+          </button>
+          <button
+            v-if="isCheckoutActive"
+            type="button"
+            :disabled="isSubmitting"
+            @click="cancelOrder"
+            class="btn btn-secondary cancel-draft-btn"
+          >
+            Cancel Reservation
+          </button>
+        </div>
       </form>
 
       <!-- Order Summary Card -->
@@ -376,6 +486,72 @@ async function submitOrder() {
 .subtitle {
   color: var(--text-muted);
   font-size: 0.95rem;
+}
+
+.reservation-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 2rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.15));
+  border: 1px solid rgba(129, 140, 248, 0.35);
+  border-radius: 12px;
+}
+
+.banner-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.timer-icon {
+  font-size: 2rem;
+}
+
+.banner-left h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.1rem;
+  color: var(--text-primary, #fff);
+}
+
+.banner-left p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.countdown-badge {
+  font-family: monospace;
+  font-size: 1.4rem;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.action-buttons-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.cancel-draft-btn {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  padding: 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.cancel-draft-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
 }
 
 .empty-state {

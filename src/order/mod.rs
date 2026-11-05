@@ -394,7 +394,7 @@ impl OrderAgent for OrderAgentImpl {
         for item in &data.items {
             let mut inv_client = InventoryAgentClient::get(item.product_id.clone());
             let res = inv_client
-                .reserve_quantity(order_id.clone(), region.clone(), item.quantity)
+                .reserve_quantity(order_id.clone(), region.clone(), item.quantity, None)
                 .await;
 
             match res {
@@ -498,7 +498,7 @@ impl OrderAgent for OrderAgentImpl {
 
             let mut inv_client = InventoryAgentClient::get(product_id.clone());
             let reserve_res = inv_client
-                .reserve_quantity(state.order_id.clone(), region.clone(), desired_qty)
+                .reserve_quantity(state.order_id.clone(), region.clone(), desired_qty, None)
                 .await;
 
             if let Err(err) = reserve_res {
@@ -655,7 +655,7 @@ impl OrderAgent for OrderAgentImpl {
 
             let mut inv_client = InventoryAgentClient::get(product_id.clone());
             let reserve_res = inv_client
-                .reserve_quantity(state.order_id.clone(), region.clone(), quantity)
+                .reserve_quantity(state.order_id.clone(), region.clone(), quantity, None)
                 .await;
 
             if let Err(err) = reserve_res {

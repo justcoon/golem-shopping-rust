@@ -72,7 +72,9 @@ export const useAssistantStore = defineStore("assistant", () => {
     "set_shipping_address",
     "set_billing_address",
     "set_email",
-    "checkout_cart",
+    "prepare_checkout",
+    "confirm_checkout",
+    "cancel_checkout",
   ]);
 
   const refreshCartIfCartToolsUsed = (toolNames: string[]) => {

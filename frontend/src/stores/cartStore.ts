@@ -7,8 +7,11 @@ import {
   updateCartEmail as updateCartEmailApi,
   updateBillingAddress as updateBillingAddressApi,
   updateShippingAddress as updateShippingAddressApi,
-  checkoutCart as checkoutCartApi,
+  prepareCheckout as prepareCheckoutApi,
+  confirmCheckout as confirmCheckoutApi,
+  cancelCheckout as cancelCheckoutApi,
   Cart,
+  CheckoutDraft,
 } from "@/api/services/cartService";
 import type { Address } from "@/types/address";
 
@@ -21,6 +24,12 @@ export const useCartStore = defineStore("cart", () => {
   const itemCount = computed(() =>
     cartItems.value.reduce((total, item) => total + item.quantity, 0),
   );
+  const activeDraft = computed<CheckoutDraft | null>(() => {
+    if (!cart.value?.draft) return null;
+    const expires = new Date(cart.value.draft.expires_at).getTime();
+    return expires > Date.now() ? cart.value.draft : null;
+  });
+  const isCheckoutActive = computed(() => activeDraft.value !== null);
 
   const fetchCart = async (userId: string) => {
     isLoading.value = true;
@@ -122,15 +131,50 @@ export const useCartStore = defineStore("cart", () => {
     }
   }
 
-  const checkout = async (userId: string) => {
+  const prepareCheckout = async (userId: string) => {
     try {
-      const order = await checkoutCartApi(userId);
-      cart.value = null; // Clear cart after successful checkout
+      isLoading.value = true;
+      error.value = null;
+      const updatedCart = await prepareCheckoutApi(userId);
+      cart.value = updatedCart;
+      return updatedCart.draft;
+    } catch (err) {
+      error.value = err as Error;
+      console.error("Error during prepare checkout:", err);
+      throw err;
+    } finally {
+      isLoading.value = false;
+    }
+  };
+
+  const confirmCheckout = async (userId: string, orderId: string) => {
+    try {
+      isLoading.value = true;
+      error.value = null;
+      const order = await confirmCheckoutApi(userId, orderId);
+      cart.value = null;
       return order;
     } catch (err) {
       error.value = err as Error;
-      console.error("Error during checkout:", err);
+      console.error("Error during confirm checkout:", err);
       throw err;
+    } finally {
+      isLoading.value = false;
+    }
+  };
+
+  const cancelCheckout = async (userId: string, orderId: string) => {
+    try {
+      isLoading.value = true;
+      error.value = null;
+      await cancelCheckoutApi(userId, orderId);
+      await fetchCart(userId);
+    } catch (err) {
+      error.value = err as Error;
+      console.error("Error during cancel checkout:", err);
+      throw err;
+    } finally {
+      isLoading.value = false;
     }
   };
 
@@ -142,6 +186,8 @@ export const useCartStore = defineStore("cart", () => {
     cart,
     cartItems,
     itemCount,
+    activeDraft,
+    isCheckoutActive,
     isLoading,
     error,
     fetchCart,
@@ -151,7 +197,9 @@ export const useCartStore = defineStore("cart", () => {
     updateEmail,
     updateBillingAddress,
     updateShippingAddress,
-    checkout,
+    prepareCheckout,
+    confirmCheckout,
+    cancelCheckout,
     clearCart,
   };
 });

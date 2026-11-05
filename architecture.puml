@@ -46,8 +46,8 @@ gateway --> manager : "RPC\nManager API"
 ' Agent-to-agent communication
 cart --> product : "RPC\nGet product info"
 cart --> pricing : "RPC\nGet pricing info"
-cart --> inventory : "RPC\nCheck availability"
-cart --> order : "RPC\nCreate order from cart"
+cart --> inventory : "RPC\nCheck availability &\nreserve/release/fulfill stock"
+cart --> order : "RPC\nCreate order on confirmation"
 order --> product : "RPC\nGet product info"
 order --> pricing : "RPC\nGet pricing info"
 order --> inventory : "RPC\nReserve / adjust / release inventory"
@@ -56,7 +56,7 @@ product_search --> inventory : "RPC\nGet stock status"
 
 ' Shopping Assistant relationships (Autonomous Tool Execution)
 assistant --> product_search : "RPC\nSearch products & prices"
-assistant --> cart : "RPC\nManage cart & checkout"
+assistant --> cart : "RPC\nManage cart & 2-phase checkout"
 assistant --> order : "RPC\nGet order details"
 
 ' Order Search relationships
@@ -105,7 +105,7 @@ end note
 note right of inventory
   <b>Inventory Agent</b>
   - Manages regional product stock
-  - Tracks order allocations
+  - Tracks allocations & TTL checkout holds
   - State managed by Golem Cloud
 end note
 
@@ -113,7 +113,7 @@ note right of cart
   <b>Cart Agent</b>
   - Manages user shopping carts
   - One cart per user
-  - Converts to order on checkout
+  - 2-Phase checkout (prepare draft & confirm)
   - State managed by Golem Cloud
 end note
 
