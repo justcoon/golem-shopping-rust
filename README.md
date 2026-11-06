@@ -12,15 +12,17 @@ This is a simple e-commerce application built with an agent-based architecture, 
 ### Agents
 - **Product Agent**: Manages the product catalog, details, and product metadata.
 - **Pricing Agent**: Handles product pricing, currency conversions, volume discounts, and promotions.
-- **Inventory Agent**: Manages regional product stock levels and order allocations, ensuring consistency during checkout and post-checkout order modifications.
-- **Cart Agent**: Stateful per-user shopping carts that manage item additions, quantities, and cart-to-order conversions.
+- **Inventory Agent**: Manages regional product stock levels, time-bounded checkout reservations (TTL holds), and order allocations, ensuring consistency during checkout and post-checkout order modifications.
+- **Cart Agent**: Stateful per-user shopping carts that manage item additions, quantities, two-phase checkout (`prepare_checkout` → `confirm_checkout`) with locked reservation drafts, and cart-to-order conversions.
 - **Order Agent**: Manages the end-to-end order lifecycle from checkout to fulfillment.
 - **Product Search Agent**: Provides catalog search with flexible query filtering (keywords, brands, tags).
 - **Order Search Agent**: Provides system-wide order search, filtering by status, user ID, or free-text query, and date sorting.
 - **Shopping Assistant Agent**: Autonomous AI assistant that plans and executes multi-turn tool calling across domain agents using durable Golem RPC.
+- **Shopping Recommendation Agent**: Generates and stores personalized product and brand recommendations asynchronously based on user order history and catalog trends.
 - **Manager Agent**: Autonomous AI assistant for store managers to search, modify, ship, and cancel orders, and inspect catalog/inventory.
 
 ### Key Features
+- **Two-Phase Checkout & Reservation**: Time-bounded inventory reservations (10-minute hold window) during checkout preparation, preventing race conditions and cart modifications until confirmation or cancellation.
 - **RESTful HTTP API**: All agents expose HTTP endpoints declared in `golem.yaml` and mapped directly to agent methods.
 - **Built-in Web Interfaces**: Zero-setup web clients served directly by Golem:
   - `/assistant`: Customer shopping assistant with real-time SSE streaming, collapsible tool inspection, and dynamic recommendations.

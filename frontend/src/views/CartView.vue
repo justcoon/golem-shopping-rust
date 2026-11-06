@@ -10,10 +10,21 @@ const authStore = useAuthStore();
 const currentUserId = authStore.userId;
 
 const cart = computed(() => cartStore.cart);
+const isCheckoutActive = computed(() => cartStore.isCheckoutActive);
+const activeDraft = computed(() => cartStore.activeDraft);
 
 onMounted(async () => {
   await cartStore.fetchCart(currentUserId);
 });
+
+async function cancelActiveCheckout() {
+  if (!activeDraft.value) return;
+  try {
+    await cartStore.cancelCheckout(currentUserId, activeDraft.value.order_id);
+  } catch (error) {
+    console.error("Failed to cancel checkout:", error);
+  }
+}
 
 watch(
   () => cartStore.cart,
@@ -56,8 +67,23 @@ async function removeItem(productId: string) {
       <router-link to="/products" class="btn btn-primary"> Explore Catalog </router-link>
     </div>
 
+    <!-- Active Checkout Banner -->
+    <div v-else-if="isCheckoutActive && activeDraft" class="cart-checkout-banner glass-card">
+      <div class="banner-left">
+        <span class="banner-icon">⏱️</span>
+        <div>
+          <h3>Order #{{ activeDraft.order_id }} is in progress</h3>
+          <p>Items in your cart are currently locked and reserved. Complete your checkout or cancel the reservation to modify quantities.</p>
+        </div>
+      </div>
+      <div class="banner-actions">
+        <router-link to="/checkout" class="btn btn-primary btn-sm">Complete Checkout</router-link>
+        <button @click="cancelActiveCheckout" class="btn btn-secondary btn-sm">Cancel Hold</button>
+      </div>
+    </div>
+
     <!-- Cart Layout -->
-    <div v-else class="cart-layout">
+    <div v-if="cart?.items?.length" class="cart-layout">
       <!-- Items List -->
       <div class="cart-items">
         <div v-for="item in cart.items" :key="item.product_id" class="cart-item glass-card">
@@ -83,13 +109,19 @@ async function removeItem(productId: string) {
           <div class="quantity-picker">
             <button
               class="qty-btn"
-              :disabled="item.quantity <= 1"
+              :disabled="isCheckoutActive || item.quantity <= 1"
               @click="updateQty(item.product_id, item.quantity - 1)"
             >
               −
             </button>
             <span class="qty-val">{{ item.quantity }}</span>
-            <button class="qty-btn" @click="updateQty(item.product_id, item.quantity + 1)">+</button>
+            <button
+              class="qty-btn"
+              :disabled="isCheckoutActive"
+              @click="updateQty(item.product_id, item.quantity + 1)"
+            >
+              +
+            </button>
           </div>
 
           <!-- Line Total -->
@@ -98,7 +130,12 @@ async function removeItem(productId: string) {
           </div>
 
           <!-- Remove Button -->
-          <button class="remove-btn" title="Remove item" @click="removeItem(item.product_id)">
+          <button
+            class="remove-btn"
+            title="Remove item"
+            :disabled="isCheckoutActive"
+            @click="removeItem(item.product_id)"
+          >
             ✕
           </button>
         </div>
@@ -409,6 +446,46 @@ async function removeItem(productId: string) {
   text-align: center;
   text-decoration: none;
   display: block;
+}
+
+.cart-checkout-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  margin-bottom: 2rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.12));
+  border: 1px solid rgba(129, 140, 248, 0.3);
+  border-radius: 12px;
+  gap: 1.5rem;
+}
+
+.cart-checkout-banner .banner-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.cart-checkout-banner .banner-icon {
+  font-size: 1.8rem;
+}
+
+.cart-checkout-banner h3 {
+  margin: 0 0 0.2rem;
+  font-size: 1.05rem;
+  color: var(--text-primary, #fff);
+}
+
+.cart-checkout-banner p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.cart-checkout-banner .banner-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-shrink: 0;
 }
 
 .security-note {

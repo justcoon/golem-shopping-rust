@@ -40,11 +40,15 @@ impl GooseRequestExt for GooseUser {
         name: &str,
         path: &str,
     ) -> Result<GooseResponse, Box<TransactionError>> {
-        let request_builder =
-            self.get_request_builder(&GooseMethod::Get, path)?.headers(get_headers());
+        let request_builder = self
+            .get_request_builder(&GooseMethod::Get, path)?
+            .headers(get_headers());
 
         self.request(
-            GooseRequest::builder().set_request_builder(request_builder).name(name).build(),
+            GooseRequest::builder()
+                .set_request_builder(request_builder)
+                .name(name)
+                .build(),
         )
         .await
     }
@@ -55,11 +59,16 @@ impl GooseRequestExt for GooseUser {
         path: &str,
         json: &T,
     ) -> Result<GooseResponse, Box<TransactionError>> {
-        let request_builder =
-            self.get_request_builder(&GooseMethod::Post, path)?.headers(get_headers()).json(json);
+        let request_builder = self
+            .get_request_builder(&GooseMethod::Post, path)?
+            .headers(get_headers())
+            .json(json);
 
         self.request(
-            GooseRequest::builder().set_request_builder(request_builder).name(name).build(),
+            GooseRequest::builder()
+                .set_request_builder(request_builder)
+                .name(name)
+                .build(),
         )
         .await
     }
@@ -70,11 +79,16 @@ impl GooseRequestExt for GooseUser {
         path: &str,
         json: &T,
     ) -> Result<GooseResponse, Box<TransactionError>> {
-        let request_builder =
-            self.get_request_builder(&GooseMethod::Put, path)?.headers(get_headers()).json(json);
+        let request_builder = self
+            .get_request_builder(&GooseMethod::Put, path)?
+            .headers(get_headers())
+            .json(json);
 
         self.request(
-            GooseRequest::builder().set_request_builder(request_builder).name(name).build(),
+            GooseRequest::builder()
+                .set_request_builder(request_builder)
+                .name(name)
+                .build(),
         )
         .await
     }
@@ -84,11 +98,15 @@ impl GooseRequestExt for GooseUser {
         name: &str,
         path: &str,
     ) -> Result<GooseResponse, Box<TransactionError>> {
-        let request_builder =
-            self.get_request_builder(&GooseMethod::Delete, path)?.headers(get_headers());
+        let request_builder = self
+            .get_request_builder(&GooseMethod::Delete, path)?
+            .headers(get_headers());
 
         self.request(
-            GooseRequest::builder().set_request_builder(request_builder).name(name).build(),
+            GooseRequest::builder()
+                .set_request_builder(request_builder)
+                .name(name)
+                .build(),
         )
         .await
     }

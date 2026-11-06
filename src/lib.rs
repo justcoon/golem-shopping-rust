@@ -8,5 +8,6 @@ pub mod order_search;
 pub mod pricing;
 pub mod product;
 pub mod product_search;
+pub mod recommendation;
 pub mod shopping_assistant;
 pub mod web;

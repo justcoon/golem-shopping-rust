@@ -15,6 +15,8 @@ pub struct OrderAllocation {
     pub region: String,
     pub quantity: u32,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    #[serde(default)]
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -49,13 +51,32 @@ impl Inventory {
         }
     }
 
+    pub fn purge_expired_allocations(&mut self) {
+        let now = chrono::Utc::now();
+        let prev_len = self.allocations.len();
+        self.allocations.retain(|a| match a.expires_at {
+            Some(exp) => exp > now,
+            None => true,
+        });
+        if self.allocations.len() != prev_len {
+            self.updated_at = now;
+        }
+    }
+
     pub fn get_available_quantity(&self, region: String) -> Availability {
+        let now = chrono::Utc::now();
         let item = self.items.iter().find(|i| i.region == region);
         let total_quantity = item.map(|i| i.total_quantity).unwrap_or(0);
         let allocated_quantity: u32 = self
             .allocations
             .iter()
-            .filter(|a| a.region == region)
+            .filter(|a| {
+                a.region == region
+                    && match a.expires_at {
+                        Some(exp) => exp > now,
+                        None => true,
+                    }
+            })
             .map(|a| a.quantity)
             .sum();
         let available_quantity = total_quantity.saturating_sub(allocated_quantity);
@@ -85,14 +106,25 @@ impl Inventory {
         order_id: String,
         region: String,
         quantity: u32,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<(), ReserveQuantityError> {
+        self.purge_expired_allocations();
+
+        let now = chrono::Utc::now();
         let item = self.items.iter().find(|i| i.region == region);
         let total_quantity = item.map(|i| i.total_quantity).unwrap_or(0);
 
         let other_allocated: u32 = self
             .allocations
             .iter()
-            .filter(|a| a.region == region && a.order_id != order_id)
+            .filter(|a| {
+                a.region == region
+                    && a.order_id != order_id
+                    && match a.expires_at {
+                        Some(exp) => exp > now,
+                        None => true,
+                    }
+            })
             .map(|a| a.quantity)
             .sum();
 
@@ -113,7 +145,6 @@ impl Inventory {
             ));
         }
 
-        let now = chrono::Utc::now();
         self.allocations.retain(|a| a.order_id != order_id);
 
         if quantity > 0 {
@@ -122,6 +153,7 @@ impl Inventory {
                 region,
                 quantity,
                 updated_at: now,
+                expires_at,
             });
         }
 
@@ -232,6 +264,7 @@ pub trait InventoryAgent {
         order_id: String,
         region: String,
         quantity: u32,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<(), ReserveQuantityError>;
 
     fn release_reservation(&mut self, order_id: String);
@@ -299,13 +332,14 @@ impl InventoryAgent for InventoryAgentImpl {
         order_id: String,
         region: String,
         quantity: u32,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<(), ReserveQuantityError> {
         info!(
-            "Reserving quantity {} for order {} in region {} on product {}",
-            quantity, order_id, region, self._id
+            "Reserving quantity {} for order {} in region {} on product {} with expiration {:?}",
+            quantity, order_id, region, self._id, expires_at
         );
         match self.state.as_mut() {
-            Some(inventory) => inventory.reserve_quantity(order_id, region, quantity),
+            Some(inventory) => inventory.reserve_quantity(order_id, region, quantity, expires_at),
             None => Err(ReserveQuantityError::InventoryNotFound(
                 InventoryNotFoundError {
                     message: format!("Inventory for product {} not found", self._id),
@@ -380,7 +414,7 @@ mod tests {
         assert_eq!(avail.allocated_quantity, 0);
 
         assert!(
-            inv.reserve_quantity("ord-1".to_string(), "global".to_string(), 4)
+            inv.reserve_quantity("ord-1".to_string(), "global".to_string(), 4, None)
                 .is_ok()
         );
         let avail_after = inv.get_available_quantity("global".to_string());
@@ -401,7 +435,7 @@ mod tests {
         }];
         let mut inv = Inventory::new_with_items("p1".to_string(), items);
 
-        let res = inv.reserve_quantity("ord-1".to_string(), "global".to_string(), 6);
+        let res = inv.reserve_quantity("ord-1".to_string(), "global".to_string(), 6, None);
         assert!(matches!(
             res,
             Err(ReserveQuantityError::InsufficientInventory(_))
@@ -421,11 +455,11 @@ mod tests {
         let mut inv = Inventory::new_with_items("p1".to_string(), items);
 
         assert!(
-            inv.reserve_quantity("ord-1".to_string(), "global".to_string(), 3)
+            inv.reserve_quantity("ord-1".to_string(), "global".to_string(), 3, None)
                 .is_ok()
         );
         assert!(
-            inv.reserve_quantity("ord-2".to_string(), "global".to_string(), 4)
+            inv.reserve_quantity("ord-2".to_string(), "global".to_string(), 4, None)
                 .is_ok()
         );
 
@@ -445,5 +479,59 @@ mod tests {
         assert_eq!(avail3.available_quantity, 6);
         assert_eq!(avail3.total_quantity, 6);
         assert_eq!(avail3.allocated_quantity, 0);
+    }
+
+    #[test]
+    fn test_reservation_expiration() {
+        let items = vec![InventoryItem {
+            region: "global".to_string(),
+            total_quantity: 10,
+        }];
+        let mut inv = Inventory::new_with_items("p1".to_string(), items);
+
+        // Reserve 4 items with a past expiration directly in allocations
+        let past = chrono::Utc::now() - chrono::Duration::seconds(10);
+        inv.allocations.push(OrderAllocation {
+            order_id: "expired-ord".to_string(),
+            region: "global".to_string(),
+            quantity: 4,
+            updated_at: past,
+            expires_at: Some(past),
+        });
+
+        // get_available_quantity should ignore expired allocation
+        let avail = inv.get_available_quantity("global".to_string());
+        assert_eq!(avail.available_quantity, 10);
+        assert_eq!(avail.allocated_quantity, 0);
+
+        // Purge should drop it from state
+        inv.purge_expired_allocations();
+        assert_eq!(inv.allocations.len(), 0);
+    }
+
+    #[test]
+    fn test_reserve_with_explicit_expiration() {
+        let items = vec![InventoryItem {
+            region: "global".to_string(),
+            total_quantity: 10,
+        }];
+        let mut inv = Inventory::new_with_items("p1".to_string(), items);
+
+        let future = chrono::Utc::now()
+            + chrono::Duration::seconds(crate::common::CHECKOUT_RESERVATION_TTL_SECONDS);
+        assert!(
+            inv.reserve_quantity(
+                "ord-shared-1".to_string(),
+                "global".to_string(),
+                4,
+                Some(future)
+            )
+            .is_ok()
+        );
+
+        assert_eq!(inv.allocations[0].expires_at, Some(future));
+        let avail = inv.get_available_quantity("global".to_string());
+        assert_eq!(avail.available_quantity, 6);
+        assert_eq!(avail.allocated_quantity, 4);
     }
 }

@@ -5,17 +5,28 @@ use rand::Rng;
 pub fn rand_product_id() -> String {
     let product_ids = get_product_ids();
 
-    product_ids.choose(&mut rand::thread_rng()).unwrap().to_string()
+    product_ids
+        .choose(&mut rand::thread_rng())
+        .unwrap()
+        .to_string()
 }
 
 pub fn rand_product_brand() -> String {
     let product_brands = get_product_brands();
 
-    product_brands.choose(&mut rand::thread_rng()).unwrap().to_string()
+    product_brands
+        .choose(&mut rand::thread_rng())
+        .unwrap()
+        .to_string()
 }
 
 pub fn get_product_brands() -> Vec<String> {
-    vec!["Brand A".to_string(), "Brand B".to_string(), "Brand C".to_string(), "Brand D".to_string()]
+    vec![
+        "Brand A".to_string(),
+        "Brand B".to_string(),
+        "Brand C".to_string(),
+        "Brand D".to_string(),
+    ]
 }
 
 pub fn get_product_ids() -> Vec<String> {

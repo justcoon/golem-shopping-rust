@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub const CURRENCY_DEFAULT: &str = "USD";
 pub const PRICING_REGION_DEFAULT: &str = "global";
 pub const INVENTORY_REGION_DEFAULT: &str = "global";
+pub const CHECKOUT_RESERVATION_TTL_SECONDS: i64 = 600;
 
 #[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct Address {

@@ -46,8 +46,9 @@ async fn main() -> Result<(), GooseError> {
 async fn get_products(user: &mut GooseUser) -> TransactionResult {
     let product_id = data::rand_product_id();
 
-    let _response =
-        user.get_request("product-get", format!("/v1/product/{product_id}").as_str()).await?;
+    let _response = user
+        .get_request("product-get", format!("/v1/product/{product_id}").as_str())
+        .await?;
 
     Ok(())
 }
@@ -56,7 +57,10 @@ async fn search_products_by_brand(user: &mut GooseUser) -> TransactionResult {
     let brand = data::rand_product_brand();
 
     let _response = user
-        .get_request("product-search-by-brand", format!("/v1/product/search?query=brand:\"{brand}\"").as_str())
+        .get_request(
+            "product-search-by-brand",
+            format!("/v1/product/search?query=brand:\"{brand}\"").as_str(),
+        )
         .await?;
 
     Ok(())
@@ -65,8 +69,9 @@ async fn search_products_by_brand(user: &mut GooseUser) -> TransactionResult {
 async fn get_pricing(user: &mut GooseUser) -> TransactionResult {
     let product_id = data::rand_product_id();
 
-    let _response =
-        user.get_request("pricing-get", format!("/v1/pricing/{product_id}").as_str()).await?;
+    let _response = user
+        .get_request("pricing-get", format!("/v1/pricing/{product_id}").as_str())
+        .await?;
 
     Ok(())
 }
@@ -75,12 +80,19 @@ async fn create_and_checkout_cart(user: &mut GooseUser) -> TransactionResult {
     let item_count = 4;
 
     let product_ids = data::get_product_ids();
-    let product_ids: Vec<_> =
-        product_ids.choose_multiple(&mut rand::thread_rng(), item_count).collect();
+    let product_ids: Vec<_> = product_ids
+        .choose_multiple(&mut rand::thread_rng(), item_count)
+        .collect();
 
-    let user_id = data::get_user_ids().choose(&mut rand::thread_rng()).unwrap().to_string();
+    let user_id = data::get_user_ids()
+        .choose(&mut rand::thread_rng())
+        .unwrap()
+        .to_string();
 
-    let address = data::get_addresses().choose(&mut rand::thread_rng()).unwrap().to_owned();
+    let address = data::get_addresses()
+        .choose(&mut rand::thread_rng())
+        .unwrap()
+        .to_owned();
 
     let set_email = domain::common::SetEmail::new(data::get_email(user_id.clone()));
 
@@ -104,7 +116,11 @@ async fn create_and_checkout_cart(user: &mut GooseUser) -> TransactionResult {
         .await?;
 
     let _response = user
-        .put_request("cart-set-email", format!("/v1/cart/{user_id}/email").as_str(), &set_email)
+        .put_request(
+            "cart-set-email",
+            format!("/v1/cart/{user_id}/email").as_str(),
+            &set_email,
+        )
         .await?;
 
     let _response = user
@@ -115,20 +131,40 @@ async fn create_and_checkout_cart(user: &mut GooseUser) -> TransactionResult {
         )
         .await?;
 
-    let _response = user.get_request("cart-get", format!("/v1/cart/{user_id}").as_str()).await?;
+    let _response = user
+        .get_request("cart-get", format!("/v1/cart/{user_id}").as_str())
+        .await?;
 
     let response = user
         .post_request(
-            "cart-checkout",
-            format!("/v1/cart/{user_id}/checkout").as_str(),
-            &serde_json::Value::Null,
+            "cart-prepare-checkout",
+            format!("/v1/cart/{user_id}/checkout/prepare").as_str(),
+            &serde_json::json!({}),
         )
         .await?;
 
-    let order_created: domain::cart::OrderCreated = response.json().await?;
-    let order_id = order_created.order_id;
+    let cart: domain::cart::CartWithDraft = response.json().await?;
+    let order_id = cart
+        .draft
+        .expect("cart draft must be present after prepare-checkout")
+        .order_id;
 
-    let _response = user.get_request("order-get", format!("/v1/order/{order_id}").as_str()).await?;
+    let response = user
+        .post_request(
+            "cart-confirm-checkout",
+            format!("/v1/cart/{user_id}/checkout/confirm").as_str(),
+            &serde_json::json!({ "order_id": order_id }),
+        )
+        .await?;
+
+    let confirmation: domain::cart::OrderConfirmation = response.json().await?;
+
+    let _response = user
+        .get_request(
+            "order-get",
+            format!("/v1/order/{}", confirmation.order_id).as_str(),
+        )
+        .await?;
 
     Ok(())
 }

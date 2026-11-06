@@ -1,27 +1,27 @@
 name: CI
 
 on:
-  push:
-    tags: [ 'v*.*.*' ]
-    branches: [ '**' ]
-  pull_request_review:
-    types:
-      - submitted
+#  push:
+#    tags: [ 'v*.*.*' ]
+#    branches: [ '**' ]
+#  pull_request_review:
+#    types:
+#      - submitted
   workflow_dispatch:
     inputs:
       golemversion:
         description: Golem version
         type: choice
         required: false
-        default: 1.6.2
+        default: 1.6.3
         options:
           - latest
           - master
-          - 1.6.2
+          - 1.6.3
 
 env:
   CARGO_TERM_COLOR: always
-  GOLEM_VERSION: ${{ github.event.inputs.golemversion != '' && github.event.inputs.golemversion || '1.6.2' }}
+  GOLEM_VERSION: ${{ github.event.inputs.golemversion != '' && github.event.inputs.golemversion || '1.6.3' }}
 
 jobs:
   setup-environment:

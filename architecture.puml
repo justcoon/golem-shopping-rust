@@ -24,6 +24,7 @@ package "Golem Cloud" {
     [Product Search Agent] as product_search #D1F2EB
     [Order Search Agent] as order_search #D1F2EB
     [Shopping Assistant Agent] as assistant #E8F8F5
+    [Shopping Recommendation Agent] as recommendation #E8F8F5
     [Manager Agent] as manager #FADBD8
 }
 
@@ -41,13 +42,15 @@ gateway --> order : "RPC\nOrder API"
 gateway --> product_search : "RPC\nProduct Search API"
 gateway --> order_search : "RPC\nOrder Search API"
 gateway --> assistant : "RPC\nAssistant API"
+gateway --> recommendation : "RPC\nRecommendation API"
 gateway --> manager : "RPC\nManager API"
 
 ' Agent-to-agent communication
 cart --> product : "RPC\nGet product info"
 cart --> pricing : "RPC\nGet pricing info"
-cart --> inventory : "RPC\nCheck availability"
-cart --> order : "RPC\nCreate order from cart"
+cart --> inventory : "RPC\nCheck availability &\nreserve/release/fulfill stock"
+cart --> order : "RPC\nCreate order on confirmation"
+cart --> recommendation : "RPC (Fire-and-forget)\nTrigger recommendations"
 order --> product : "RPC\nGet product info"
 order --> pricing : "RPC\nGet pricing info"
 order --> inventory : "RPC\nReserve / adjust / release inventory"
@@ -56,7 +59,7 @@ product_search --> inventory : "RPC\nGet stock status"
 
 ' Shopping Assistant relationships (Autonomous Tool Execution)
 assistant --> product_search : "RPC\nSearch products & prices"
-assistant --> cart : "RPC\nManage cart & checkout"
+assistant --> cart : "RPC\nManage cart & 2-phase checkout"
 assistant --> order : "RPC\nGet order details"
 
 ' Order Search relationships
@@ -72,6 +75,11 @@ manager --> product_search : "RPC\nSearch catalog"
 ' LLM Service connections
 assistant --> llm : "API Call"
 manager --> llm : "API Call"
+recommendation --> llm : "API Call"
+
+' Shopping Recommendation relationships
+recommendation --> order : "RPC\nGet order history"
+recommendation --> product_search : "RPC\nSearch candidate products"
 
 ' Add notes
 note right of gateway
@@ -83,6 +91,7 @@ note right of gateway
   - /v1/cart/* -> Cart Agent
   - /v1/order/* -> Order Agent
   - /v1/assistant/* -> Shopping Assistant Agent
+  - /v1/recommendation/* -> Shopping Recommendation Agent
   - /v1/manager/* -> Manager Agent
   - /v1/product/search -> Product Search Agent
   - /v1/order-search/* -> Order Search Agent
@@ -105,7 +114,7 @@ end note
 note right of inventory
   <b>Inventory Agent</b>
   - Manages regional product stock
-  - Tracks order allocations
+  - Tracks allocations & TTL checkout holds
   - State managed by Golem Cloud
 end note
 
@@ -113,7 +122,7 @@ note right of cart
   <b>Cart Agent</b>
   - Manages user shopping carts
   - One cart per user
-  - Converts to order on checkout
+  - 2-Phase checkout (prepare draft & confirm)
   - State managed by Golem Cloud
 end note
 
@@ -143,6 +152,14 @@ note right of assistant
   - Autonomous multi-turn tool calling
   - Tools for search, cart, checkout & orders
   - Synchronous and SSE streaming chat
+  - State managed by Golem Cloud
+end note
+
+note right of recommendation
+  <b>Shopping Recommendation Agent</b>
+  - Personalized product recommendations
+  - Analyzes purchase history via LLM
+  - Triggered asynchronously on cart checkout
   - State managed by Golem Cloud
 end note
 

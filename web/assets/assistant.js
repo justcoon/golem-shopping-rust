@@ -487,7 +487,7 @@ async function loadHistory() {
 async function loadRecommendations() {
   if (!recContainer) return;
   try {
-    const res = await fetch(`/v1/assistant/${encodeURIComponent(currentUserId)}/recommended-items`);
+    const res = await fetch(`/v1/recommendation/${encodeURIComponent(currentUserId)}/recommended-items`);
     if (!res.ok) return;
 
     const data = await res.json();

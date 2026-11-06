@@ -42,8 +42,20 @@ pub mod cart {
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
-    // #[serde(rename_all = "kebab-case")]
-    pub struct OrderCreated {
+    pub struct CheckoutDraft {
+        pub order_id: String,
+        pub expires_at: String,
+        pub created_at: String,
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    pub struct CartWithDraft {
+        pub draft: Option<CheckoutDraft>,
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    pub struct OrderConfirmation {
+        pub user_id: String,
         pub order_id: String,
     }
 }

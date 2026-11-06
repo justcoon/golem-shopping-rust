@@ -10,6 +10,12 @@ export interface CartItem {
   quantity: number;
 }
 
+export interface CheckoutDraft {
+  order_id: string;
+  expires_at: string;
+  created_at: string;
+}
+
 export interface Cart {
   user_id: string;
   items: CartItem[];
@@ -20,6 +26,7 @@ export interface Cart {
   currency: string;
   previous_order_ids: string[];
   updated_at: DateTime;
+  draft?: CheckoutDraft;
 }
 
 export interface OrderConfirmation {
@@ -85,11 +92,36 @@ export const updateShippingAddress = async (userId: string, address: Address): P
   }
 };
 
-export const checkoutCart = async (userId: string): Promise<OrderConfirmation> => {
+export const prepareCheckout = async (userId: string): Promise<Cart> => {
   try {
-    return await apiClient.post(`/v1/cart/${userId}/checkout`, {});
+    return await apiClient.post(`/v1/cart/${userId}/checkout/prepare`, {});
   } catch (error) {
-    console.error("Error during checkout:", error);
+    console.error("Error during prepare checkout:", error);
+    throw error;
+  }
+};
+
+export const confirmCheckout = async (
+  userId: string,
+  orderId: string,
+): Promise<OrderConfirmation> => {
+  try {
+    return await apiClient.post(`/v1/cart/${userId}/checkout/confirm`, {
+      order_id: orderId,
+    });
+  } catch (error) {
+    console.error("Error during confirm checkout:", error);
+    throw error;
+  }
+};
+
+export const cancelCheckout = async (userId: string, orderId: string): Promise<void> => {
+  try {
+    await apiClient.post(`/v1/cart/${userId}/checkout/cancel`, {
+      order_id: orderId,
+    });
+  } catch (error) {
+    console.error("Error during cancel checkout:", error);
     throw error;
   }
 };
