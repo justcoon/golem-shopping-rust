@@ -6,7 +6,7 @@ use crate::inventory::InventoryAgentClient;
 use crate::order::{CreateOrder, Order, OrderAgentClient, OrderItem};
 use crate::pricing::{PricingAgentClient, PricingItem};
 use crate::product::{Product, ProductAgentClient};
-use crate::shopping_assistant::ShoppingAssistantAgentClient;
+use crate::recommendation::ShoppingRecommendationAgentClient;
 use email_address::EmailAddress;
 use futures::future::{join, join_all};
 use golem_rust::{Schema, agent_definition, agent_implementation, description, endpoint, prompt};
@@ -764,7 +764,7 @@ impl CartAgent for CartAgentImpl {
         let user_id = state.user_id.clone();
         state.order_created(order_id.clone());
 
-        ShoppingAssistantAgentClient::get(user_id.clone()).trigger_recommend_items();
+        ShoppingRecommendationAgentClient::get(user_id.clone()).trigger_recommend_items();
 
         info!(
             "Successfully confirmed checkout for user {} and order {}",

@@ -18,6 +18,7 @@ This is a simple e-commerce application built with an agent-based architecture, 
 - **Product Search Agent**: Provides catalog search with flexible query filtering (keywords, brands, tags).
 - **Order Search Agent**: Provides system-wide order search, filtering by status, user ID, or free-text query, and date sorting.
 - **Shopping Assistant Agent**: Autonomous AI assistant that plans and executes multi-turn tool calling across domain agents using durable Golem RPC.
+- **Shopping Recommendation Agent**: Generates and stores personalized product and brand recommendations asynchronously based on user order history and catalog trends.
 - **Manager Agent**: Autonomous AI assistant for store managers to search, modify, ship, and cancel orders, and inspect catalog/inventory.
 
 ### Key Features

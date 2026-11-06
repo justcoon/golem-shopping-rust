@@ -62,6 +62,7 @@ httpApi:
         OrderAgent: {}
         OrderSearchAgent: {}
         ShoppingAssistantAgent: {}
+        ShoppingRecommendationAgent: {}
         ManagerAgent: {}
         WebAssistant: {}
         WebManager: {}
