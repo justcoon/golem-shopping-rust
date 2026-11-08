@@ -1,8 +1,8 @@
 pub mod tools;
 
 use crate::ai::{
-    AgentConfig, ChatChunk, ChatMessage, ChatResponse, ChatTurnResult, LlmConfig, NoopDispatcher,
-    execute_agent_chat_stream, execute_agent_chat_turn, extract_json_str, process_chat_turn,
+    AgentConfig, ChatChunk, ChatMessage, ChatResponse, ChatTurnResult, execute_agent_chat_stream,
+    process_chat_turn,
 };
 use golem_rust::agentic::{AgentStream, Config, spawn_local};
 use golem_rust::{agent_definition, agent_implementation, endpoint, read_only};

@@ -83,6 +83,14 @@ pub struct GetOrderHistoryInput {
     pub limit: Option<u32>,
 }
 
+/// Order ID parameter for checkout confirmation or cancellation
+#[derive(Schema, Clone, Serialize, Deserialize, JsonSchema, Debug)]
+pub struct CheckoutOrderInput {
+    /// Order ID associated with the checkout draft
+    #[serde(rename = "orderId", alias = "order_id")]
+    pub order_id: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, ToolError)]
 pub enum CartToolError {
     #[tool_error(kind = "runtime-error", exit_code = 1)]
@@ -155,8 +163,22 @@ pub trait CartTool {
         input: SetEmailInput,
     ) -> Result<CartUpdated, CartToolError>;
 
-    /// Place the order from the current shopping cart
-    async fn checkout_cart(&self, user_id: String) -> Result<OrderConfirmation, CartToolError>;
+    /// Prepare checkout by reserving inventory for 10 minutes and generating an order draft
+    async fn prepare_checkout(&self, user_id: String) -> Result<Cart, CartToolError>;
+
+    /// Confirm and place the order after explicit user confirmation
+    async fn confirm_checkout(
+        &self,
+        user_id: String,
+        input: CheckoutOrderInput,
+    ) -> Result<OrderConfirmation, CartToolError>;
+
+    /// Cancel an active checkout reservation to make changes to the cart
+    async fn cancel_checkout(
+        &self,
+        user_id: String,
+        input: CheckoutOrderInput,
+    ) -> Result<(), CartToolError>;
 
     /// Retrieve past orders placed by this customer
     async fn get_order_history(&self, user_id: String, input: GetOrderHistoryInput) -> Vec<Order>;
@@ -191,6 +213,7 @@ impl CartTool for CartToolImpl {
                             err.requested, err.available
                         )
                     }
+                    crate::cart::AddItemError::ActionNotAllowed(err) => err.message,
                 };
                 CartToolError::OperationFailed { message: msg }
             })
@@ -214,6 +237,7 @@ impl CartTool for CartToolImpl {
                             err.requested, err.available
                         )
                     }
+                    crate::cart::UpdateItemQuantityError::ActionNotAllowed(err) => err.message,
                 };
                 CartToolError::OperationFailed { message: msg }
             })
@@ -225,11 +249,16 @@ impl CartTool for CartToolImpl {
         input: RemoveFromCartInput,
     ) -> Result<CartUpdated, CartToolError> {
         let mut cart_client = CartAgentClient::get(user_id);
-        cart_client.remove_item(input.product_id).await.map_err(
-            |crate::cart::RemoveItemError::ItemNotFound(err)| CartToolError::OperationFailed {
-                message: err.message,
-            },
-        )
+        cart_client
+            .remove_item(input.product_id)
+            .await
+            .map_err(|e| {
+                let msg = match e {
+                    crate::cart::RemoveItemError::ItemNotFound(err) => err.message,
+                    crate::cart::RemoveItemError::ActionNotAllowed(err) => err.message,
+                };
+                CartToolError::OperationFailed { message: msg }
+            })
     }
 
     async fn clear_cart(&self, user_id: String) {
@@ -247,13 +276,13 @@ impl CartTool for CartToolImpl {
         user_id: String,
     ) -> Result<CartUpdated, CartToolError> {
         let mut cart_client = CartAgentClient::get(user_id);
-        cart_client.apply_saved_contact_info().await.map_err(
-            |crate::cart::UpdateAddressError::AddressNotValid(err)| {
-                CartToolError::OperationFailed {
-                    message: err.message,
-                }
-            },
-        )
+        cart_client.apply_saved_contact_info().await.map_err(|e| {
+            let msg = match e {
+                crate::cart::UpdateAddressError::AddressNotValid(err) => err.message,
+                crate::cart::UpdateAddressError::ActionNotAllowed(err) => err.message,
+            };
+            CartToolError::OperationFailed { message: msg }
+        })
     }
 
     async fn set_shipping_address(
@@ -273,10 +302,12 @@ impl CartTool for CartToolImpl {
                 input.phone_number,
             )
             .await
-            .map_err(|crate::cart::UpdateAddressError::AddressNotValid(err)| {
-                CartToolError::OperationFailed {
-                    message: err.message,
-                }
+            .map_err(|e| {
+                let msg = match e {
+                    crate::cart::UpdateAddressError::AddressNotValid(err) => err.message,
+                    crate::cart::UpdateAddressError::ActionNotAllowed(err) => err.message,
+                };
+                CartToolError::OperationFailed { message: msg }
             })
     }
 
@@ -297,10 +328,12 @@ impl CartTool for CartToolImpl {
                 input.phone_number,
             )
             .await
-            .map_err(|crate::cart::UpdateAddressError::AddressNotValid(err)| {
-                CartToolError::OperationFailed {
-                    message: err.message,
-                }
+            .map_err(|e| {
+                let msg = match e {
+                    crate::cart::UpdateAddressError::AddressNotValid(err) => err.message,
+                    crate::cart::UpdateAddressError::ActionNotAllowed(err) => err.message,
+                };
+                CartToolError::OperationFailed { message: msg }
             })
     }
 
@@ -310,29 +343,59 @@ impl CartTool for CartToolImpl {
         input: SetEmailInput,
     ) -> Result<CartUpdated, CartToolError> {
         let mut cart_client = CartAgentClient::get(user_id);
-        cart_client.update_email(input.email).await.map_err(
-            |crate::cart::UpdateEmailError::EmailNotValid(err)| CartToolError::OperationFailed {
-                message: err.message,
-            },
-        )
-    }
-
-    async fn checkout_cart(&self, user_id: String) -> Result<OrderConfirmation, CartToolError> {
-        let mut cart_client = CartAgentClient::get(user_id);
-        cart_client.checkout().await.map_err(|e| {
+        cart_client.update_email(input.email).await.map_err(|e| {
             let msg = match e {
-                crate::cart::CheckoutError::ProductNotFound(err) => err.message,
-                crate::cart::CheckoutError::PricingNotFound(err) => err.message,
-                crate::cart::CheckoutError::EmptyItems(err) => err.message,
-                crate::cart::CheckoutError::EmptyEmail(err) => err.message,
-                crate::cart::CheckoutError::BillingAddressNotSet(err) => err.message,
-                crate::cart::CheckoutError::OrderCreate(err) => err.message,
-                crate::cart::CheckoutError::InsufficientStock(err) => {
-                    format!("Insufficient stock for product '{}'", err.product_id)
-                }
+                crate::cart::UpdateEmailError::EmailNotValid(err) => err.message,
+                crate::cart::UpdateEmailError::ActionNotAllowed(err) => err.message,
             };
             CartToolError::OperationFailed { message: msg }
         })
+    }
+
+    async fn prepare_checkout(&self, user_id: String) -> Result<Cart, CartToolError> {
+        let mut cart_client = CartAgentClient::get(user_id);
+        cart_client.prepare_checkout().await.map_err(|e| {
+            let msg = match e {
+                crate::cart::PrepareCheckoutError::EmptyItems(err) => err.message,
+                crate::cart::PrepareCheckoutError::EmptyEmail(err) => err.message,
+                crate::cart::PrepareCheckoutError::BillingAddressNotSet(err) => err.message,
+                crate::cart::PrepareCheckoutError::InsufficientStock(err) => err.message,
+                crate::cart::PrepareCheckoutError::ActionNotAllowed(err) => err.message,
+            };
+            CartToolError::OperationFailed { message: msg }
+        })
+    }
+
+    async fn confirm_checkout(
+        &self,
+        user_id: String,
+        input: CheckoutOrderInput,
+    ) -> Result<OrderConfirmation, CartToolError> {
+        let mut cart_client = CartAgentClient::get(user_id);
+        cart_client
+            .confirm_checkout(input.order_id)
+            .await
+            .map_err(|e| {
+                let msg = match e {
+                    crate::cart::ConfirmCheckoutError::NoActiveDraft(msg) => msg,
+                    crate::cart::ConfirmCheckoutError::OrderMismatch(msg) => msg,
+                    crate::cart::ConfirmCheckoutError::ReservationExpired(msg) => msg,
+                    crate::cart::ConfirmCheckoutError::OrderCreate(err) => err.message,
+                };
+                CartToolError::OperationFailed { message: msg }
+            })
+    }
+
+    async fn cancel_checkout(
+        &self,
+        user_id: String,
+        input: CheckoutOrderInput,
+    ) -> Result<(), CartToolError> {
+        let mut cart_client = CartAgentClient::get(user_id);
+        cart_client
+            .cancel_checkout(input.order_id)
+            .await
+            .map_err(|msg| CartToolError::OperationFailed { message: msg })
     }
 
     async fn get_order_history(&self, user_id: String, input: GetOrderHistoryInput) -> Vec<Order> {
@@ -471,13 +534,43 @@ impl CartToolImpl {
 
         let uid = user_id.clone();
         registry.register_tool_call_with_desc(
-            "checkout_cart",
-            "Place the order from the current shopping cart after user explicit confirmation",
+            "prepare_checkout",
+            "Prepare checkout by reserving inventory for 10 minutes and generating an order draft",
             move |_: EmptyInput| {
                 let uid = uid.clone();
-                async move { CartToolClient::new().checkout_cart(uid).await }
+                async move { CartToolClient::new().prepare_checkout(uid).await }
             },
-            |conf| format!("Checkout complete! Order ID: {}", conf.order_id),
+            |cart| {
+                let draft = cart.draft.as_ref();
+                let order_id = draft.map(|d| d.order_id.as_str()).unwrap_or("");
+                let expires_at = draft.map(|d| d.expires_at.to_rfc3339()).unwrap_or_default();
+                format!(
+                    "Prepared checkout for order #{order_id}! Total: {}{:.2}, items reserved until {expires_at}. Please ask the user to confirm.",
+                    cart.currency, cart.total
+                )
+            },
+        );
+
+        let uid = user_id.clone();
+        registry.register_tool_call_with_desc(
+            "confirm_checkout",
+            "Confirm and place the order after explicit user confirmation",
+            move |args: CheckoutOrderInput| {
+                let uid = uid.clone();
+                async move { CartToolClient::new().confirm_checkout(uid, args).await }
+            },
+            |conf| format!("Order confirmed! Order ID: {}", conf.order_id),
+        );
+
+        let uid = user_id.clone();
+        registry.register_tool_call_with_desc(
+            "cancel_checkout",
+            "Cancel an active checkout reservation to make changes to the cart",
+            move |args: CheckoutOrderInput| {
+                let uid = uid.clone();
+                async move { CartToolClient::new().cancel_checkout(uid, args).await }
+            },
+            |_| "Cancelled checkout reservation".to_string(),
         );
 
         let uid = user_id.clone();

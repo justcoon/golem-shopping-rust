@@ -292,4 +292,3 @@ mod tests {
         assert_eq!(items.product_brands, vec!["Brand A", "Brand B"]);
     }
 }
-
