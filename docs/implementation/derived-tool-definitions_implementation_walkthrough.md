@@ -10,23 +10,25 @@
 
 We completely unified the tool architecture so that **Golem Platform Tools (`#[tool_definition]`) are the single source of truth** across the application:
 
-1. **First-Class Golem Tools with Strongly Typed Domain Returns (`src/tools/`)**:
-   - `CartTool` & `CartToolImpl` ([src/tools/cart.rs](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/tools/cart.rs)): Defines all cart methods returning domain structs (`Option<Cart>`, `Result<CartUpdated, CartToolError>`, `Result<OrderConfirmation, CartToolError>`, `Option<SavedContactInfo>`, `Vec<Order>`) instead of formatted strings. Typed errors derive Golem's `#[derive(ToolError)]`.
-   - `CatalogTool` & `CatalogToolImpl` ([src/tools/catalog.rs](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/tools/catalog.rs)): Defines catalog methods returning typed domain models (`Vec<ProductWithPrice>`, `Option<ProductWithPrice>`, `Availability`, `Option<Product>`).
-   - `OrderTool` & `OrderToolImpl` ([src/tools/order.rs](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/tools/order.rs)): Defines order lifecycle methods returning typed domain models (`Option<Order>`, `Result<Vec<Order>, OrderToolError>`, `Result<OrderUpdated, OrderToolError>`) with typed `OrderToolError`.
+1. **Categorized Golem Tools with Strongly Typed Domain Returns (`src/tools/`)**:
+   - `CatalogTools` & `CatalogToolsImpl` ([src/tools/catalog.rs](../../src/tools/catalog.rs)): `search_products`, `get_product_details`.
+   - `InventoryTools` & `InventoryToolsImpl` ([src/tools/inventory.rs](../../src/tools/inventory.rs)): `check_inventory`.
+   - `CartTools` & `CartToolsImpl` ([src/tools/cart.rs](../../src/tools/cart.rs)): Cart management, addresses, and two-phase checkout (`prepare_checkout`, `confirm_checkout`, `cancel_checkout`).
+   - `CustomerOrderTools` & `CustomerOrderToolsImpl` ([src/tools/customer_order.rs](../../src/tools/customer_order.rs)): Customer order viewing (`get_order_history`, `get_order_details`).
+   - `ManagerOrderTools` & `ManagerOrderToolsImpl` ([src/tools/manager_order.rs](../../src/tools/manager_order.rs)): Operations & fulfillment (`search_orders`, `list_recent_orders`, `ship_order`, `cancel_order`, item & address updates).
    - All tool responses are automatically serialized to JSON by `TypedTool` for the internal LLM conversation context, while remaining clean, strongly-typed Rust APIs for internal Golem RPC and Golem MCP.
-2. **Generated Tool Clients & Concise Tool Mounting**:
-   - Uses definition-owned tool clients: `CatalogToolClient::new()`, `CartToolClient::new()`, and `OrderToolClient::new()`.
+2. **Generated Tool Clients & Modular Tool Mounting**:
+   - Uses definition-owned tool clients: `CatalogToolsClient::new()`, `InventoryToolsClient::new()`, `CartToolsClient::new()`, `CustomerOrderToolsClient::new()`, and `ManagerOrderToolsClient::new()`.
    - Tool descriptions are **automatically extracted from Rust doc comments (`///`)** via `description_from_schema::<Args>()`.
    - Introduced `registry.register_tool_call(...)` and `registry.register_tool_call_with_desc(...)`:
      - Completely eliminates boilerplate: no manual `match` blocks, no manual `serde_json::to_string` calls, and no repetitive error string formatting.
      - Each tool registration is reduced to **a single concise call** passing the client method and a summary badge closure.
-   - Configured runtime tool bindings under `components.shopping-rust:shopping.tools` in `golem.yaml` (`cart-tool`, `catalog-tool`, `order-tool`).
+   - Configured runtime tool bindings under `components.shopping-rust:shopping.tools` in `golem.yaml` (`catalog-tools`, `inventory-tools`, `cart-tools`, `customer-order-tools`, `manager-order-tools`).
 3. **Generic `ToolDispatcher` on `ToolRegistry` (`src/ai/tools.rs`)**:
    - Dispatches incoming tool calls directly to the tool implementations.
    - Completely deleted manual dispatcher structs (`ShoppingAssistantDispatcher` and `ManagerDispatcher`).
 4. **Manifest Deployment Integration (`golem.yaml`)**:
-   - Declared top-level tools (`cart-tool`, `catalog-tool`, `order-tool`) implemented by `shopping-rust:shopping`.
+   - Declared top-level tools (`catalog-tools`, `inventory-tools`, `cart-tools`, `customer-order-tools`, `manager-order-tools`) implemented by `shopping-rust:shopping`.
    - Configured `mcp.deployments` for local development with `ownerComponent: shopping-rust:shopping` and agent deployments, allowing external AI clients (Claude Desktop, Cursor, MCP clients) to interact with the store via Streamable HTTP MCP at `http://localhost:9007/mcp`.
 
 ---
@@ -39,13 +41,19 @@ We completely unified the tool architecture so that **Golem Platform Tools (`#[t
 - Duplicated again in `manager/tools.rs`.
 
 ### After (Direct Tool Definition & Mounting)
-- All capability logic lives once in `src/tools/cart.rs`, `src/tools/catalog.rs`, and `src/tools/order.rs`.
-- Assistants simply mount the tools:
+- All capability logic lives in `src/tools/`:
+  - `catalog.rs`
+  - `inventory.rs`
+  - `cart.rs`
+  - `customer_order.rs`
+  - `manager_order.rs`
+- Assistants mount their relevant tools cleanly:
   ```rust
   let mut registry = ToolRegistry::new();
-  CatalogToolImpl::register(&mut registry);
-  CartToolImpl::register(user_id, &mut registry);
-  OrderToolImpl::register_for_assistant(&mut registry);
+  CatalogToolsImpl::register(&mut registry);
+  InventoryToolsImpl::register(&mut registry);
+  CartToolsImpl::register(user_id.clone(), &mut registry);
+  CustomerOrderToolsImpl::register(user_id, &mut registry);
   ```
 
 ---

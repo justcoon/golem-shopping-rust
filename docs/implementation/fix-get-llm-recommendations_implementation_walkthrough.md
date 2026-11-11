@@ -8,7 +8,7 @@
 
 ## 1. Overview of Changes
 
-We refactored `get_llm_recommendations` in [`src/shopping_assistant/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/shopping_assistant/mod.rs) to reuse the unified, provider-agnostic agent chat turn executor [`execute_agent_chat_turn`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/ai/agent_loop.rs#L274).
+We refactored `get_llm_recommendations` in [`src/shopping_assistant/mod.rs`](../../src/shopping_assistant/mod.rs) to reuse the unified, provider-agnostic agent chat turn executor [`execute_agent_chat_turn`](../../src/ai/agent_loop.rs#L274).
 
 ### Key Accomplishments
 
@@ -19,8 +19,8 @@ We refactored `get_llm_recommendations` in [`src/shopping_assistant/mod.rs`](fil
    - Removed `.expect("LLM recommendations")`, preventing unhandled crashes.
    - Failures (missing API keys, network/HTTP errors) are captured cleanly via `ChatTurnResult` and returned as `Err(String)`.
 3. **No-Op Dispatcher & Markdown Code Fence Extraction**:
-   - Added [`NoopDispatcher`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/ai/agent_loop.rs#L245-L253) in `src/ai/agent_loop.rs` for tool-free chat turns.
-   - Added [`extract_json_str`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/ai/agent_loop.rs#L254-L275) to reliably strip markdown code fences (` ```json ... ``` ` or ` ``` ... ``` `) and isolate JSON objects before deserializing with `serde_json::from_str`.
+   - Added [`NoopDispatcher`](../../src/ai/agent_loop.rs#L245-L253) in `src/ai/agent_loop.rs` for tool-free chat turns.
+   - Added [`extract_json_str`](../../src/ai/agent_loop.rs#L254-L275) to reliably strip markdown code fences (` ```json ... ``` ` or ` ``` ... ``` `) and isolate JSON objects before deserializing with `serde_json::from_str`.
 4. **Dependency Cleanup**:
    - Removed unused crates `golem-ai-llm` and `golem-ai-llm-openrouter` from `Cargo.toml`.
    - Removed unused imports and policy definitions in `src/shopping_assistant/mod.rs`.

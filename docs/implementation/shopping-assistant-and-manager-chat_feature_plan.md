@@ -8,7 +8,7 @@
 
 ## 1. Overview & Goals
 
-In [`golem-shopping-effect`](file:///Users/coon/workspace-zv/git/golem-shopping-effect), the application features two AI-powered agents:
+In [`golem-shopping-effect`](), the application features two AI-powered agents:
 1. **`ShoppingAssistantAgent`**: A customer-facing shopping assistant that provides conversational product discovery, cart operations, saved contact info retrieval, 1-click checkout, and order status tracking.
 2. **`ManagerAgent`**: An operations-facing store manager agent that provides order management (search, list, ship, cancel, item modification, address/email correction) and catalog/inventory auditing.
 

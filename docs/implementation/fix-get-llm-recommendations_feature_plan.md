@@ -8,12 +8,12 @@
 
 ## 1. Overview & Goals
 
-Currently, `get_llm_recommendations` in [`src/shopping_assistant/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/shopping_assistant/mod.rs) uses `golem_ai_llm_openrouter::DurableOpenRouter::send` directly. Consequently:
+Currently, `get_llm_recommendations` in [`src/shopping_assistant/mod.rs`](../../src/shopping_assistant/mod.rs) uses `golem_ai_llm_openrouter::DurableOpenRouter::send` directly. Consequently:
 - It only works when `OPENROUTER_KEY` and OpenRouter are configured.
 - When configured for Google Gemini (e.g. `GEMINI_API_KEY`, `gemini-3.1-flash-lite`, and the Google OpenAI endpoint as in `golem.yaml`) or a custom proxy `api_url`, `recommend_items` fails.
 - It uses `.expect("LLM recommendations")`, which risks panicking and permanently failing the invocation on an unhandled error instead of gracefully propagating errors.
 
-In contrast, [`src/ai/agent_loop.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/ai/agent_loop.rs) provides `execute_agent_chat_turn`:
+In contrast, [`src/ai/agent_loop.rs`](../../src/ai/agent_loop.rs) provides `execute_agent_chat_turn`:
 - It dynamically resolves the API endpoint via `resolve_endpoint_url` (supporting OpenRouter, Google Gemini's OpenAI-compatible endpoint, or any custom `api_url`).
 - It uses Golem's native WASI HTTP client (`golem_rust::http`), which inherits Golem's built-in platform retries and durable execution semantics.
 - It handles authentication, error responses, and returns a clean `ChatTurnResult`.
@@ -111,9 +111,9 @@ pub fn extract_json_str(text: &str) -> &str {
 
 | File | Action | Description |
 |---|---|---|
-| [`src/ai/agent_loop.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/ai/agent_loop.rs) | `[MODIFY]` | Add `pub struct NoopDispatcher` and `pub fn extract_json_str(text: &str) -> &str` (with unit tests). |
-| [`src/shopping_assistant/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/shopping_assistant/mod.rs) | `[MODIFY]` | Refactor `get_llm_recommendations` to call `execute_agent_chat_turn`, remove `golem_ai_llm_openrouter` references, remove `.expect`, and parse using `extract_json_str`. |
-| [`Cargo.toml`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/Cargo.toml) | `[MODIFY]` | Remove unused `golem-ai-llm` and `golem-ai-llm-openrouter` crate dependencies. |
+| [`src/ai/agent_loop.rs`](../../src/ai/agent_loop.rs) | `[MODIFY]` | Add `pub struct NoopDispatcher` and `pub fn extract_json_str(text: &str) -> &str` (with unit tests). |
+| [`src/shopping_assistant/mod.rs`](../../src/shopping_assistant/mod.rs) | `[MODIFY]` | Refactor `get_llm_recommendations` to call `execute_agent_chat_turn`, remove `golem_ai_llm_openrouter` references, remove `.expect`, and parse using `extract_json_str`. |
+| [`Cargo.toml`](../../Cargo.toml) | `[MODIFY]` | Remove unused `golem-ai-llm` and `golem-ai-llm-openrouter` crate dependencies. |
 
 ---
 

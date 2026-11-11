@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary
 
-Based on the TypeScript/Effect implementation in [`golem-shopping-effect`](file:///Users/coon/workspace-zv/git/golem-shopping-effect), we implemented conversational chat capabilities for `ShoppingAssistantAgent` and created the new `ManagerAgent`. Because `@earendil-works/pi-agent-core` is specific to TypeScript, we implemented a custom multi-turn tool-calling loop using WASI HTTP p3 (`golem_rust::http`) and native streaming (`golem_rust::agentic::AgentStream`).
+Based on the TypeScript/Effect implementation in [`golem-shopping-effect`](), we implemented conversational chat capabilities for `ShoppingAssistantAgent` and created the new `ManagerAgent`. Because `@earendil-works/pi-agent-core` is specific to TypeScript, we implemented a custom multi-turn tool-calling loop using WASI HTTP p3 (`golem_rust::http`) and native streaming (`golem_rust::agentic::AgentStream`).
 
 Both agents now support:
 1. Synchronous conversational `chat(message: String) -> ChatResponse`
@@ -25,21 +25,21 @@ Both agents now support:
 
 | Action | File Path | Summary of Changes |
 | :--- | :--- | :--- |
-| `[NEW]` | [`src/ai/schema.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/ai/schema.rs) | Golem `Schema` models: `ChatRole`, `ToolCallRecord`, `ChatMessageType`, `ChatMessage`, `ChatResponse`, `ChatChunk` |
-| `[NEW]` | [`src/ai/agent_loop.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/ai/agent_loop.rs) | Custom LLM loop, OpenAI/Gemini/OpenRouter endpoint resolution, multi-turn tool execution, and chunk emission |
-| `[NEW]` | [`src/ai/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/ai/mod.rs) | AI module exports and unit test suite |
-| `[NEW]` | [`src/shopping_assistant/tools.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/shopping_assistant/tools.rs) | 16 shopping assistant tool definitions, JSON schemas, system prompt, and async execution dispatcher |
-| `[MODIFY]` | [`src/shopping_assistant/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/shopping_assistant/mod.rs) | Added `chat`, `chat_stream`, `get_history`, `clear_history` to `ShoppingAssistantAgent`; wired custom loop; updated snapshots with backward compatibility |
-| `[NEW]` | [`src/manager/tools.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/manager/tools.rs) | 14 store manager tool definitions, JSON schemas, manager system prompt, and async execution dispatcher |
-| `[NEW]` | [`src/manager/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/manager/mod.rs) | `ManagerAgent` trait and implementation mounted at `/v1/manager/{id}` with `chat`, `chat_stream`, `get_history`, `clear_history`, and snapshots |
-| `[MODIFY]` | [`src/lib.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/lib.rs) | Re-exported `ai`, `manager`, and `web` modules |
-| `[NEW]` | [`src/web/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/web/mod.rs) | `WebAssistant` (mounted at `/assistant`) and `WebManager` (mounted at `/manager`) serving HTML and static assets via WASI filesystem and embedded fallbacks |
-| `[MODIFY]` | [`web/assets/chat-common.js`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/web/assets/chat-common.js) | Added `normalizeChunk` and `normalizeToolCall` to seamlessly handle both Effect and Rust SSE stream formats and tool records |
-| `[MODIFY]` | [`web/assets/assistant.js`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/web/assets/assistant.js) | Integrated normalized chunk and tool parsing; support for `toolCallsUsed`/`tool_calls_used` and `productIds`/`product_ids` |
-| `[MODIFY]` | [`web/assets/manager.js`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/web/assets/manager.js) | Integrated normalized chunk and tool parsing; support for `toolCallsUsed`/`tool_calls_used` |
-| `[MODIFY]` | [`web/assistant.html`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/web/assistant.html) | Updated header subtitle |
-| `[MODIFY]` | [`web/manager.html`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/web/manager.html) | Updated header subtitle |
-| `[MODIFY]` | [`golem.yaml`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/golem.yaml) | Mounted `/web` files to component and registered `ManagerAgent`, `WebAssistant`, and `WebManager` under `httpApi.deployments.local[0].agents` |
+| `[NEW]` | [`src/ai/schema.rs`](../../src/ai/schema.rs) | Golem `Schema` models: `ChatRole`, `ToolCallRecord`, `ChatMessageType`, `ChatMessage`, `ChatResponse`, `ChatChunk` |
+| `[NEW]` | [`src/ai/agent_loop.rs`](../../src/ai/agent_loop.rs) | Custom LLM loop, OpenAI/Gemini/OpenRouter endpoint resolution, multi-turn tool execution, and chunk emission |
+| `[NEW]` | [`src/ai/mod.rs`](../../src/ai/mod.rs) | AI module exports and unit test suite |
+| `[NEW]` | [`src/shopping_assistant/tools.rs`](../../src/shopping_assistant/tools.rs) | 16 shopping assistant tool definitions, JSON schemas, system prompt, and async execution dispatcher |
+| `[MODIFY]` | [`src/shopping_assistant/mod.rs`](../../src/shopping_assistant/mod.rs) | Added `chat`, `chat_stream`, `get_history`, `clear_history` to `ShoppingAssistantAgent`; wired custom loop; updated snapshots with backward compatibility |
+| `[NEW]` | [`src/manager/tools.rs`](../../src/manager/tools.rs) | 14 store manager tool definitions, JSON schemas, manager system prompt, and async execution dispatcher |
+| `[NEW]` | [`src/manager/mod.rs`](../../src/manager/mod.rs) | `ManagerAgent` trait and implementation mounted at `/v1/manager/{id}` with `chat`, `chat_stream`, `get_history`, `clear_history`, and snapshots |
+| `[MODIFY]` | [`src/lib.rs`](../../src/lib.rs) | Re-exported `ai`, `manager`, and `web` modules |
+| `[NEW]` | [`src/web/mod.rs`](../../src/web/mod.rs) | `WebAssistant` (mounted at `/assistant`) and `WebManager` (mounted at `/manager`) serving HTML and static assets via WASI filesystem and embedded fallbacks |
+| `[MODIFY]` | [`web/assets/chat-common.js`](../../web/assets/chat-common.js) | Added `normalizeChunk` and `normalizeToolCall` to seamlessly handle both Effect and Rust SSE stream formats and tool records |
+| `[MODIFY]` | [`web/assets/assistant.js`](../../web/assets/assistant.js) | Integrated normalized chunk and tool parsing; support for `toolCallsUsed`/`tool_calls_used` and `productIds`/`product_ids` |
+| `[MODIFY]` | [`web/assets/manager.js`](../../web/assets/manager.js) | Integrated normalized chunk and tool parsing; support for `toolCallsUsed`/`tool_calls_used` |
+| `[MODIFY]` | [`web/assistant.html`](../../web/assistant.html) | Updated header subtitle |
+| `[MODIFY]` | [`web/manager.html`](../../web/manager.html) | Updated header subtitle |
+| `[MODIFY]` | [`golem.yaml`](../../golem.yaml) | Mounted `/web` files to component and registered `ManagerAgent`, `WebAssistant`, and `WebManager` under `httpApi.deployments.local[0].agents` |
 
 ### Key Logic & API Changes
 

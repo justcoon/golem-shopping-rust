@@ -1,5 +1,3 @@
-#![allow(clippy::too_many_arguments)]
-
 use crate::ai::tools::ToolRegistry;
 use crate::common::Address;
 use crate::order::{Order, OrderAgentClient, OrderStatus, OrderUpdated};
@@ -7,14 +5,6 @@ use crate::order_search::OrderSearchAgentClient;
 use golem_rust::{Schema, ToolError, tool_definition, tool_implementation};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-
-/// Get full details of a specific order including items, total, status, and shipping address
-#[derive(Schema, Clone, Serialize, Deserialize, JsonSchema, Debug)]
-pub struct GetOrderDetailsInput {
-    /// Order ID to look up
-    #[serde(rename = "orderId", alias = "order_id")]
-    pub order_id: String,
-}
 
 /// Search orders across system by query text, status, or customer userId
 #[derive(Schema, Clone, Serialize, Deserialize, JsonSchema, Debug)]
@@ -35,6 +25,14 @@ pub struct SearchOrdersInput {
 pub struct ListRecentOrdersInput {
     /// Max number of recent orders (default 10)
     pub limit: Option<u32>,
+}
+
+/// Get full details of a specific order including items, total, status, and shipping address
+#[derive(Schema, Clone, Serialize, Deserialize, JsonSchema, Debug)]
+pub struct GetOrderDetailsInput {
+    /// Order ID to look up
+    #[serde(rename = "orderId", alias = "order_id")]
+    pub order_id: String,
 }
 
 /// Order ID for status updates or tracking
@@ -69,7 +67,7 @@ pub struct RemoveOrderItemInput {
     pub product_id: String,
 }
 
-/// Update the quantity of an item in an existing new order. Adjusts inventory reservations.
+/// Update quantity of an item in an existing new order. Adjusts inventory reservations.
 #[derive(Schema, Clone, Serialize, Deserialize, JsonSchema, Debug)]
 pub struct UpdateOrderItemQuantityInput {
     /// Order ID to modify
@@ -138,12 +136,10 @@ impl std::fmt::Display for OrderToolError {
     }
 }
 
+/// Store manager tools for order search, fulfillment, and lifecycle management
 #[allow(clippy::too_many_arguments)]
 #[tool_definition(version = "1.0.0")]
-pub trait OrderTool {
-    /// Get full details of a specific order by order ID
-    async fn get_order_details(&self, input: GetOrderDetailsInput) -> Option<Order>;
-
+pub trait ManagerOrderTools {
     /// Search orders across system by query text, status, or customer userId
     async fn search_orders(&self, input: SearchOrdersInput) -> Result<Vec<Order>, OrderToolError>;
 
@@ -152,6 +148,9 @@ pub trait OrderTool {
         &self,
         input: ListRecentOrdersInput,
     ) -> Result<Vec<Order>, OrderToolError>;
+
+    /// Get full details of a specific order by order ID
+    async fn get_order_details(&self, input: GetOrderDetailsInput) -> Option<Order>;
 
     /// Ship an existing new order
     async fn ship_order(&self, input: OrderIdInput) -> Result<OrderUpdated, OrderToolError>;
@@ -165,46 +164,41 @@ pub trait OrderTool {
         input: AddOrderItemInput,
     ) -> Result<OrderUpdated, OrderToolError>;
 
-    /// Remove an item from an existing order
+    /// Remove a product item from an existing order
     async fn remove_order_item(
         &self,
         input: RemoveOrderItemInput,
     ) -> Result<OrderUpdated, OrderToolError>;
 
-    /// Update quantity of an item in an existing order
+    /// Update quantity of an item on an existing order
     async fn update_order_item_quantity(
         &self,
         input: UpdateOrderItemQuantityInput,
     ) -> Result<OrderUpdated, OrderToolError>;
 
-    /// Update shipping address on an order
+    /// Update recipient shipping address on an existing order
     async fn update_order_shipping_address(
         &self,
         input: UpdateOrderAddressInput,
     ) -> Result<OrderUpdated, OrderToolError>;
 
-    /// Update billing address on an order
+    /// Update billing address on an existing order
     async fn update_order_billing_address(
         &self,
         input: UpdateOrderAddressInput,
     ) -> Result<OrderUpdated, OrderToolError>;
 
-    /// Update customer contact email on an order
+    /// Update customer email on an existing order
     async fn update_order_email(
         &self,
         input: UpdateOrderEmailInput,
     ) -> Result<OrderUpdated, OrderToolError>;
 }
 
-pub struct OrderToolImpl;
+pub struct ManagerOrderToolsImpl;
 
 #[tool_implementation]
-impl OrderTool for OrderToolImpl {
-    async fn get_order_details(&self, input: GetOrderDetailsInput) -> Option<Order> {
-        let client = OrderAgentClient::get(input.order_id);
-        client.get_order().await
-    }
-
+impl ManagerOrderTools for ManagerOrderToolsImpl {
     async fn search_orders(&self, input: SearchOrdersInput) -> Result<Vec<Order>, OrderToolError> {
         let status = input.status.and_then(|s| match s.to_lowercase().as_str() {
             "new" => Some(OrderStatus::New),
@@ -231,6 +225,11 @@ impl OrderTool for OrderToolImpl {
             .await
             .value
             .map_err(|e| OrderToolError::OperationFailed { message: e })
+    }
+
+    async fn get_order_details(&self, input: GetOrderDetailsInput) -> Option<Order> {
+        let client = OrderAgentClient::get(input.order_id);
+        client.get_order().await
     }
 
     async fn ship_order(&self, input: OrderIdInput) -> Result<OrderUpdated, OrderToolError> {
@@ -314,7 +313,7 @@ impl OrderTool for OrderToolImpl {
         &self,
         input: UpdateOrderAddressInput,
     ) -> Result<OrderUpdated, OrderToolError> {
-        let mut client = OrderAgentClient::get(input.order_id);
+        let mut client = OrderAgentClient::get(input.order_id.clone());
         client
             .update_shipping_address(
                 input.street,
@@ -328,8 +327,8 @@ impl OrderTool for OrderToolImpl {
             .await
             .map_err(|e| {
                 let msg = match e {
-                    crate::order::UpdateAddressError::ActionNotAllowed(err) => err.message,
                     crate::order::UpdateAddressError::AddressNotValid(err) => err.message,
+                    crate::order::UpdateAddressError::ActionNotAllowed(err) => err.message,
                 };
                 OrderToolError::OperationFailed { message: msg }
             })
@@ -339,7 +338,7 @@ impl OrderTool for OrderToolImpl {
         &self,
         input: UpdateOrderAddressInput,
     ) -> Result<OrderUpdated, OrderToolError> {
-        let mut client = OrderAgentClient::get(input.order_id);
+        let mut client = OrderAgentClient::get(input.order_id.clone());
         client
             .update_billing_address(
                 input.street,
@@ -353,8 +352,8 @@ impl OrderTool for OrderToolImpl {
             .await
             .map_err(|e| {
                 let msg = match e {
-                    crate::order::UpdateAddressError::ActionNotAllowed(err) => err.message,
                     crate::order::UpdateAddressError::AddressNotValid(err) => err.message,
+                    crate::order::UpdateAddressError::ActionNotAllowed(err) => err.message,
                 };
                 OrderToolError::OperationFailed { message: msg }
             })
@@ -375,24 +374,28 @@ impl OrderTool for OrderToolImpl {
     }
 }
 
-impl OrderToolImpl {
-    /// Registers order tools for the store manager into a `ToolRegistry`.
-    pub fn register_for_manager(registry: &mut ToolRegistry) {
+impl ManagerOrderToolsImpl {
+    /// Registers all manager order tools into a `ToolRegistry` for LLM consumption.
+    pub fn register(registry: &mut ToolRegistry) {
         registry.register_tool_call(
             "search_orders",
-            |args| async move { OrderToolClient::new().search_orders(args).await },
+            |args| async move { ManagerOrderToolsClient::new().search_orders(args).await },
             |orders| format!("Found {} matching order(s)", orders.len()),
         );
 
         registry.register_tool_call(
             "list_recent_orders",
-            |args| async move { OrderToolClient::new().list_recent_orders(args).await },
+            |args| async move {
+                ManagerOrderToolsClient::new()
+                    .list_recent_orders(args)
+                    .await
+            },
             |orders| format!("Retrieved {} recent order(s)", orders.len()),
         );
 
         registry.register_tool_call(
             "get_order_details",
-            |args| async move { OrderToolClient::new().get_order_details(args).await },
+            |args| async move { ManagerOrderToolsClient::new().get_order_details(args).await },
             |o| match o {
                 Some(o) => format!(
                     "Retrieved order {} (Status: {:?}, Total: ${:.2}, Items: {})",
@@ -409,7 +412,7 @@ impl OrderToolImpl {
             "ship_order",
             "Ship an existing new order. Fulfills inventory allocations and marks order status as 'shipped'.",
             |args| async move {
-                OrderToolClient::new()
+                ManagerOrderToolsClient::new()
                     .ship_order(args)
                     .await
             },
@@ -420,7 +423,7 @@ impl OrderToolImpl {
             "cancel_order",
             "Cancel an existing new order. Releases reserved inventory allocations and marks order status as 'cancelled'.",
             |args| async move {
-                OrderToolClient::new()
+                ManagerOrderToolsClient::new()
                     .cancel_order(args)
                     .await
             },
@@ -429,20 +432,20 @@ impl OrderToolImpl {
 
         registry.register_tool_call(
             "add_order_item",
-            |args| async move { OrderToolClient::new().add_order_item(args).await },
+            |args| async move { ManagerOrderToolsClient::new().add_order_item(args).await },
             |u| format!("Added item to order {}", u.order_id),
         );
 
         registry.register_tool_call(
             "remove_order_item",
-            |args| async move { OrderToolClient::new().remove_order_item(args).await },
+            |args| async move { ManagerOrderToolsClient::new().remove_order_item(args).await },
             |u| format!("Removed item from order {}", u.order_id),
         );
 
         registry.register_tool_call(
             "update_order_item_quantity",
             |args| async move {
-                OrderToolClient::new()
+                ManagerOrderToolsClient::new()
                     .update_order_item_quantity(args)
                     .await
             },
@@ -453,7 +456,7 @@ impl OrderToolImpl {
             "update_order_shipping_address",
             "Update recipient shipping address on an existing new order",
             |args| async move {
-                OrderToolClient::new()
+                ManagerOrderToolsClient::new()
                     .update_order_shipping_address(args)
                     .await
             },
@@ -464,7 +467,7 @@ impl OrderToolImpl {
             "update_order_billing_address",
             "Update billing address on an existing new order",
             |args| async move {
-                OrderToolClient::new()
+                ManagerOrderToolsClient::new()
                     .update_order_billing_address(args)
                     .await
             },
@@ -473,23 +476,12 @@ impl OrderToolImpl {
 
         registry.register_tool_call(
             "update_order_email",
-            |args| async move { OrderToolClient::new().update_order_email(args).await },
-            |u| format!("Updated customer email on order {}", u.order_id),
-        );
-    }
-
-    /// Registers the order lookup tool for the shopping assistant.
-    pub fn register_for_assistant(registry: &mut ToolRegistry) {
-        registry.register_tool_call(
-            "get_order_details",
-            |args| async move { OrderToolClient::new().get_order_details(args).await },
-            |o| match o {
-                Some(o) => format!(
-                    "Order {} status: {:?} (total: ${:.2})",
-                    o.order_id, o.order_status, o.total
-                ),
-                None => "Order not found".to_string(),
+            |args| async move {
+                ManagerOrderToolsClient::new()
+                    .update_order_email(args)
+                    .await
             },
+            |u| format!("Updated customer email on order {}", u.order_id),
         );
     }
 }

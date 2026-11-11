@@ -18,7 +18,7 @@ Additionally, as requested, we have marked the core query methods across `Produc
 
 ### 2.1 `ProductSearchAgent`
 
-In [`src/product_search/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/product_search/mod.rs):
+In [`src/product_search/mod.rs`](../../src/product_search/mod.rs):
 - **`ProductWithPrice` Schema**:
   ```rust
   #[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -47,20 +47,20 @@ In [`src/product_search/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopp
 
 ### 2.2 Read-Only Query Methods
 
-1. **[`src/product/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/product/mod.rs)**:
+1. **[`src/product/mod.rs`](../../src/product/mod.rs)**:
    - Added `#[read_only]` to `ProductAgent::get_product`.
-2. **[`src/pricing/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/pricing/mod.rs)**:
+2. **[`src/pricing/mod.rs`](../../src/pricing/mod.rs)**:
    - Added `#[read_only]` to `PricingAgent::get_pricing` and `PricingAgent::get_price`.
    - Derived `Debug, PartialEq` on `PricingItem`.
-3. **[`src/inventory/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/inventory/mod.rs)**:
+3. **[`src/inventory/mod.rs`](../../src/inventory/mod.rs)**:
    - Added `#[read_only]` to `InventoryAgent::get_inventory` and `InventoryAgent::get_available_quantity`.
 
 ### 2.3 Architecture & Documentation
 
-1. **[`architecture.puml`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/architecture.puml)**:
+1. **[`architecture.puml`](../../architecture.puml)**:
    - Added RPC arrows `product_search --> pricing` and `product_search --> inventory`.
    - Updated component note and gateway route.
-2. **[`README.md`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/README.md)**:
+2. **[`README.md`](../../README.md)**:
    - Updated `Product Search Agent` description to highlight pricing and inventory enrichment.
 
 ---

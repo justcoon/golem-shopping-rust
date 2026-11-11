@@ -52,6 +52,10 @@ Before modifying any source code or writing implementation files:
      - **File-by-File Changes**: Categorized with `[NEW]`, `[MODIFY]`, or `[DELETE]`.
      - **Verification Plan**: Exact commands to run for formatting, type checking, clippy linting, Golem build, unit tests, and runtime/smoke checks.
      - **Risks & Open Questions**: Known trade-offs or technical decisions.
+   - **Link Formatting Rule**:
+     > [!IMPORTANT]
+     > **Use Relative Markdown Links in Repository Documents**:
+     > Never use machine-specific absolute file URIs (such as `file:///Users/...`) in `docs/**/*.md` files. Always use clean relative repository links (e.g. `[src/cart/mod.rs](../../src/cart/mod.rs)`) or code backticks (`src/cart/mod.rs`) so documentation remains portable across all developer environments, CI, and GitHub. Absolute `file:///...` links are only permitted for chat UI responses, never committed files.
 
 ---
 
@@ -134,7 +138,7 @@ Once implementation and all validation checks pass:
 2. Reference [walkthrough_template.md](./resources/walkthrough_template.md) for structure.
 3. The walkthrough MUST document:
    - **Executive Summary**: High-level outcome of the implementation.
-   - **Changes Implemented**: Detailed list of modified/created files with clickable file links.
+   - **Changes Implemented**: Detailed list of modified/created files using **relative repository links** (e.g. `[src/cart/mod.rs](../../src/cart/mod.rs)`). **Never** write machine-specific absolute `file:///...` URLs into repository documentation files.
    - **Validation Results**: Actual output or proof of success for:
      - Formatting: `cargo fmt --check`
      - Compilation: `cargo check --target wasm32-wasip2`

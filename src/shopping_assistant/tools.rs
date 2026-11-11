@@ -1,8 +1,9 @@
 use crate::ai::agent_loop::{ToolDispatcher, ToolSpec};
 use crate::ai::tools::ToolRegistry;
-use crate::tools::cart::CartToolImpl;
-use crate::tools::catalog::CatalogToolImpl;
-use crate::tools::order::OrderToolImpl;
+use crate::tools::cart::CartToolsImpl;
+use crate::tools::catalog::CatalogToolsImpl;
+use crate::tools::customer_order::CustomerOrderToolsImpl;
+use crate::tools::inventory::InventoryToolsImpl;
 
 pub const SHOPPING_ASSISTANT_SYSTEM_PROMPT: &str = r#"You are a helpful, courteous, and efficient personal Shopping Assistant for our e-commerce store.
 You have access to tools to help the user:
@@ -47,9 +48,10 @@ Guidelines:
 /// Builds the shopping assistant tool registry by mounting the Golem tool implementations.
 pub fn build_shopping_assistant_tools(user_id: String) -> ToolRegistry {
     let mut registry = ToolRegistry::new();
-    CatalogToolImpl::register(&mut registry);
-    CartToolImpl::register(user_id, &mut registry);
-    OrderToolImpl::register_for_assistant(&mut registry);
+    CatalogToolsImpl::register(&mut registry);
+    InventoryToolsImpl::register(&mut registry);
+    CartToolsImpl::register(user_id.clone(), &mut registry);
+    CustomerOrderToolsImpl::register(user_id, &mut registry);
     registry
 }
 

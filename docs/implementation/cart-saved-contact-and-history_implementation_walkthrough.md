@@ -16,7 +16,7 @@ We have extended `CartAgent` in the Golem Shopping Rust application to support 1
 
 ### 2.1 Core Implementation
 
-1. **[`src/cart/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/cart/mod.rs)**:
+1. **[`src/cart/mod.rs`](../../src/cart/mod.rs)**:
    - **`SavedContactInfo` Schema**:
      ```rust
      #[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -35,14 +35,14 @@ We have extended `CartAgent` in the Golem Shopping Rust application to support 1
    - **Unit Tests**:
      - Added unit tests verifying `SavedContactInfo` construction and serialization.
 
-2. **[`src/common/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/common/mod.rs)**:
+2. **[`src/common/mod.rs`](../../src/common/mod.rs)**:
    - Derived `Debug, PartialEq` on `Address`.
 
 ### 2.2 Architecture & Documentation
 
-1. **[`architecture.puml`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/architecture.puml)**:
+1. **[`architecture.puml`](../../architecture.puml)**:
    - Updated `Cart Agent` note to reflect saved contact details and order history support.
-2. **[`README.md`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/README.md)**:
+2. **[`README.md`](../../README.md)**:
    - Updated `Cart Agent` description.
 
 ---

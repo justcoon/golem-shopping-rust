@@ -1,7 +1,8 @@
 use crate::ai::agent_loop::{ToolDispatcher, ToolSpec};
 use crate::ai::tools::ToolRegistry;
-use crate::tools::catalog::CatalogToolImpl;
-use crate::tools::order::OrderToolImpl;
+use crate::tools::catalog::CatalogToolsImpl;
+use crate::tools::inventory::InventoryToolsImpl;
+use crate::tools::manager_order::ManagerOrderToolsImpl;
 
 pub const MANAGER_SYSTEM_PROMPT: &str = r#"You are an intelligent, capable, and efficient Store Operations Manager Assistant for our e-commerce platform.
 You have access to tools to manage and inspect orders, products, and inventory:
@@ -25,8 +26,9 @@ Guidelines:
 /// Builds the store manager tool registry by mounting the Golem tool implementations.
 pub fn build_manager_tools() -> ToolRegistry {
     let mut registry = ToolRegistry::new();
-    OrderToolImpl::register_for_manager(&mut registry);
-    CatalogToolImpl::register(&mut registry);
+    CatalogToolsImpl::register(&mut registry);
+    InventoryToolsImpl::register(&mut registry);
+    ManagerOrderToolsImpl::register(&mut registry);
     registry
 }
 
