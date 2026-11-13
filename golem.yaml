@@ -70,7 +70,7 @@ tools:
 mcp:
   deployments:
     local:
-      - domain: localhost:9007
+      - subdomain: shop-mcp
         tools:
           catalog-tools:
             ownerComponent: shopping-rust:shopping
@@ -80,13 +80,14 @@ mcp:
             ownerComponent: shopping-rust:shopping
           customer-order-tools:
             ownerComponent: shopping-rust:shopping
+      - subdomain: manager-mcp
+        tools:
+          catalog-tools:
+            ownerComponent: shopping-rust:shopping
+          inventory-tools:
+            ownerComponent: shopping-rust:shopping
           manager-order-tools:
             ownerComponent: shopping-rust:shopping
-#        agents:
-#          CartAgent: {}
-#          ProductSearchAgent: {}
-#          InventoryAgent: {}
-#          OrderAgent: {}
 
 httpApi:
   deployments:

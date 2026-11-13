@@ -268,6 +268,931 @@ impl ToolDispatcher for &ToolRegistry {
     }
 }
 
+/// Helper trait to normalize return types of direct Golem tool implementations
+/// (which may return plain values or `Result<T, E>`) into a uniform `Result<T, Err>`.
+pub trait IntoToolResult {
+    type Ok: Serialize;
+    type Err: std::fmt::Display;
+    fn into_tool_result(self) -> Result<Self::Ok, Self::Err>;
+}
+
+impl<T: Serialize, E: std::fmt::Display> IntoToolResult for Result<T, E> {
+    type Ok = T;
+    type Err = E;
+    fn into_tool_result(self) -> Result<T, E> {
+        self
+    }
+}
+
+impl<T: Serialize> IntoToolResult for Option<T> {
+    type Ok = Self;
+    type Err = std::convert::Infallible;
+    fn into_tool_result(self) -> Result<Self, Self::Err> {
+        Ok(self)
+    }
+}
+
+impl<T: Serialize> IntoToolResult for Vec<T> {
+    type Ok = Self;
+    type Err = std::convert::Infallible;
+    fn into_tool_result(self) -> Result<Self, Self::Err> {
+        Ok(self)
+    }
+}
+
+impl IntoToolResult for () {
+    type Ok = ();
+    type Err = std::convert::Infallible;
+    fn into_tool_result(self) -> Result<(), Self::Err> {
+        Ok(())
+    }
+}
+
+impl IntoToolResult for crate::inventory::Availability {
+    type Ok = Self;
+    type Err = std::convert::Infallible;
+    fn into_tool_result(self) -> Result<Self, Self::Err> {
+        Ok(self)
+    }
+}
+
+/// Extracts a command description (summary) from a Golem `ExtendedToolType` descriptor.
+pub fn extract_tool_command_description(
+    descriptor: &golem_rust::agentic::ExtendedToolType,
+    method_name: &str,
+) -> Option<String> {
+    let kebab = method_name.replace('_', "-");
+    descriptor
+        .commands
+        .iter()
+        .find(|c| c.name == kebab)
+        .map(|c| c.doc.summary.clone())
+        .filter(|s| !s.is_empty())
+}
+
+/// Registers a single tool call on a `ToolRegistry` by delegating to a method on `$client`.
+/// Automatically derives tool name from `stringify!($method)`, extracts schema and doc comments
+/// from the typed input, executes the client call, and formats errors.
+#[macro_export]
+macro_rules! register_tool {
+    // 1. With explicit description override and custom summary badge
+    ($registry:expr, $client:ident, $method:ident, $desc:expr, $summary:expr) => {
+        $registry.register_tool_call_with_desc(
+            stringify!($method),
+            $desc,
+            |args| async move { $client::new().$method(args).await },
+            $summary,
+        );
+    };
+    // 2. With custom summary badge (description extracted from struct doc comments)
+    ($registry:expr, $client:ident, $method:ident, $summary:expr) => {
+        $registry.register_tool_call(
+            stringify!($method),
+            |args| async move { $client::new().$method(args).await },
+            $summary,
+        );
+    };
+    // 3. Simple (default completion summary badge & extracted description)
+    ($registry:expr, $client:ident, $method:ident) => {
+        $registry.register_tool_call(
+            stringify!($method),
+            |args| async move { $client::new().$method(args).await },
+            |_| concat!(stringify!($method), " completed").to_string(),
+        );
+    };
+}
+
+/// Registers multiple tool calls on a `ToolRegistry` for a given client in batch.
+///
+/// Syntax examples:
+/// ```ignore
+/// // Via generated Golem RPC Client:
+/// register_tools!(registry, ManagerOrderTools, [
+///     search_orders => |orders| format!("Found {} order(s)", orders.len()),
+///     ship_order => |u| format!("Shipped order {}", u.order_id),
+/// ]);
+///
+/// // Via direct in-process implementation (bypasses tool client RPC):
+/// register_tools!(registry, @impl ManagerOrderTools, [ ... ]);
+/// // Or with boolean flag:
+/// register_tools!(registry, ManagerOrderTools, use_impl: true, [ ... ]);
+/// // Or via register_tools_impl!:
+/// register_tools_impl!(registry, ManagerOrderTools, [ ... ]);
+/// ```
+#[macro_export]
+macro_rules! register_tools {
+    // 1. Context + Impl execution (use_impl: true or Impl name or @impl)
+    ($registry:expr, ManagerOrderTools, context: $ctx:expr, use_impl: true, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl_ctx $registry, $ctx, $crate::tools::ManagerOrderToolsImpl, $crate::tools::ManagerOrderTools, $( $tail )*);
+    };
+    ($registry:expr, CatalogTools, context: $ctx:expr, use_impl: true, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl_ctx $registry, $ctx, $crate::tools::CatalogToolsImpl, $crate::tools::CatalogTools, $( $tail )*);
+    };
+    ($registry:expr, InventoryTools, context: $ctx:expr, use_impl: true, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl_ctx $registry, $ctx, $crate::tools::InventoryToolsImpl, $crate::tools::InventoryTools, $( $tail )*);
+    };
+    ($registry:expr, CustomerOrderTools, context: $ctx:expr, use_impl: true, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl_ctx $registry, $ctx, $crate::tools::CustomerOrderToolsImpl, $crate::tools::CustomerOrderTools, $( $tail )*);
+    };
+    ($registry:expr, CartTools, context: $ctx:expr, use_impl: true, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl_ctx $registry, $ctx, $crate::tools::CartToolsImpl, $crate::tools::CartTools, $( $tail )*);
+    };
+    ($registry:expr, $tool:ident, use_impl: true, context: $ctx:expr, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!($registry, $tool, context: $ctx, use_impl: true, [ $( $tail )* ]);
+    };
+
+    ($registry:expr, ManagerOrderToolsImpl, context: $ctx:expr, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl_ctx $registry, $ctx, $crate::tools::ManagerOrderToolsImpl, $crate::tools::ManagerOrderTools, $( $tail )*);
+    };
+    ($registry:expr, CatalogToolsImpl, context: $ctx:expr, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl_ctx $registry, $ctx, $crate::tools::CatalogToolsImpl, $crate::tools::CatalogTools, $( $tail )*);
+    };
+    ($registry:expr, InventoryToolsImpl, context: $ctx:expr, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl_ctx $registry, $ctx, $crate::tools::InventoryToolsImpl, $crate::tools::InventoryTools, $( $tail )*);
+    };
+    ($registry:expr, CustomerOrderToolsImpl, context: $ctx:expr, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl_ctx $registry, $ctx, $crate::tools::CustomerOrderToolsImpl, $crate::tools::CustomerOrderTools, $( $tail )*);
+    };
+    ($registry:expr, CartToolsImpl, context: $ctx:expr, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl_ctx $registry, $ctx, $crate::tools::CartToolsImpl, $crate::tools::CartTools, $( $tail )*);
+    };
+
+    ($registry:expr, @impl $tool:ident, context: $ctx:expr, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!($registry, $tool, context: $ctx, use_impl: true, [ $( $tail )* ]);
+    };
+
+    // 2. Context + Client execution
+    ($registry:expr, ManagerOrderTools, context: $ctx:expr, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_full_ctx $registry, $ctx, $crate::tools::ManagerOrderToolsImpl, $crate::tools::ManagerOrderToolsClient, $( $tail )*);
+    };
+    ($registry:expr, CatalogTools, context: $ctx:expr, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_full_ctx $registry, $ctx, $crate::tools::CatalogToolsImpl, $crate::tools::CatalogToolsClient, $( $tail )*);
+    };
+    ($registry:expr, InventoryTools, context: $ctx:expr, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_full_ctx $registry, $ctx, $crate::tools::InventoryToolsImpl, $crate::tools::InventoryToolsClient, $( $tail )*);
+    };
+    ($registry:expr, CustomerOrderTools, context: $ctx:expr, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_full_ctx $registry, $ctx, $crate::tools::CustomerOrderToolsImpl, $crate::tools::CustomerOrderToolsClient, $( $tail )*);
+    };
+    ($registry:expr, CartTools, context: $ctx:expr, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_full_ctx $registry, $ctx, $crate::tools::CartToolsImpl, $crate::tools::CartToolsClient, $( $tail )*);
+    };
+
+    // 3. In-process implementation execution (use_impl: true or Impl name or @impl)
+    ($registry:expr, ManagerOrderToolsImpl, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::ManagerOrderToolsImpl, $crate::tools::ManagerOrderTools, $( $tail )*);
+    };
+    ($registry:expr, CatalogToolsImpl, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::CatalogToolsImpl, $crate::tools::CatalogTools, $( $tail )*);
+    };
+    ($registry:expr, InventoryToolsImpl, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::InventoryToolsImpl, $crate::tools::InventoryTools, $( $tail )*);
+    };
+    ($registry:expr, CustomerOrderToolsImpl, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::CustomerOrderToolsImpl, $crate::tools::CustomerOrderTools, $( $tail )*);
+    };
+    ($registry:expr, CartToolsImpl, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::CartToolsImpl, $crate::tools::CartTools, $( $tail )*);
+    };
+
+    ($registry:expr, ManagerOrderTools, use_impl: true, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::ManagerOrderToolsImpl, $crate::tools::ManagerOrderTools, $( $tail )*);
+    };
+    ($registry:expr, CatalogTools, use_impl: true, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::CatalogToolsImpl, $crate::tools::CatalogTools, $( $tail )*);
+    };
+    ($registry:expr, InventoryTools, use_impl: true, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::InventoryToolsImpl, $crate::tools::InventoryTools, $( $tail )*);
+    };
+    ($registry:expr, CustomerOrderTools, use_impl: true, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::CustomerOrderToolsImpl, $crate::tools::CustomerOrderTools, $( $tail )*);
+    };
+    ($registry:expr, CartTools, use_impl: true, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::CartToolsImpl, $crate::tools::CartTools, $( $tail )*);
+    };
+
+    ($registry:expr, @impl ManagerOrderTools, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::ManagerOrderToolsImpl, $crate::tools::ManagerOrderTools, $( $tail )*);
+    };
+    ($registry:expr, @impl CatalogTools, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::CatalogToolsImpl, $crate::tools::CatalogTools, $( $tail )*);
+    };
+    ($registry:expr, @impl InventoryTools, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::InventoryToolsImpl, $crate::tools::InventoryTools, $( $tail )*);
+    };
+    ($registry:expr, @impl CustomerOrderTools, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::CustomerOrderToolsImpl, $crate::tools::CustomerOrderTools, $( $tail )*);
+    };
+    ($registry:expr, @impl CartTools, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_impl $registry, $crate::tools::CartToolsImpl, $crate::tools::CartTools, $( $tail )*);
+    };
+
+    ($registry:expr, $tool:ident, use_impl: false, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!($registry, $tool, [ $( $tail )* ]);
+    };
+
+    // 4. Direct trait matching (client RPC): allows passing JUST the Golem tool trait name
+    ($registry:expr, ManagerOrderTools, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_full $registry, $crate::tools::ManagerOrderToolsImpl, $crate::tools::ManagerOrderToolsClient, $( $tail )*);
+    };
+    ($registry:expr, CatalogTools, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_full $registry, $crate::tools::CatalogToolsImpl, $crate::tools::CatalogToolsClient, $( $tail )*);
+    };
+    ($registry:expr, InventoryTools, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_full $registry, $crate::tools::InventoryToolsImpl, $crate::tools::InventoryToolsClient, $( $tail )*);
+    };
+    ($registry:expr, CustomerOrderTools, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_full $registry, $crate::tools::CustomerOrderToolsImpl, $crate::tools::CustomerOrderToolsClient, $( $tail )*);
+    };
+    ($registry:expr, CartTools, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_full $registry, $crate::tools::CartToolsImpl, $crate::tools::CartToolsClient, $( $tail )*);
+    };
+
+    // 5. Batch expansion for Context + Client
+    (@batch_full_ctx $registry:expr, $ctx:expr, $tool:path, $client:path, $( $tail:tt )* ) => {
+        {
+            let descriptor = <$tool>::__tool_descriptor();
+            $crate::register_tools!(@batch_with_desc_ctx $registry, $ctx, descriptor, $client, $( $tail )*);
+        }
+    };
+    // Underscore argument wildcards (forward to ident rules with _unused):
+    (@batch_with_desc_ctx $registry:expr, $ctx:expr, $desc:ident, $client:path, $method:ident ( _ : $args_ty:ty, $ctx_arg:ident ) => $map_expr:expr => $summary:expr, $( $tail:tt )* ) => {
+        $crate::register_tools!(@batch_with_desc_ctx $registry, $ctx, $desc, $client, $method ( _unused : $args_ty, $ctx_arg ) => $map_expr => $summary, $( $tail )*);
+    };
+    (@batch_with_desc_ctx $registry:expr, $ctx:expr, $desc:ident, $client:path, $method:ident ( _ : $args_ty:ty, $ctx_arg:ident ) => $map_expr:expr => $summary:expr ) => {
+        $crate::register_tools!(@batch_with_desc_ctx $registry, $ctx, $desc, $client, $method ( _unused : $args_ty, $ctx_arg ) => $map_expr => $summary);
+    };
+    (@batch_with_desc_ctx $registry:expr, $ctx:expr, $desc:ident, $client:path, $method:ident ( _ : $args_ty:ty ) => $map_expr:expr => $summary:expr, $( $tail:tt )* ) => {
+        $crate::register_tools!(@batch_with_desc_ctx $registry, $ctx, $desc, $client, $method ( _unused : $args_ty ) => $map_expr => $summary, $( $tail )*);
+    };
+    (@batch_with_desc_ctx $registry:expr, $ctx:expr, $desc:ident, $client:path, $method:ident ( _ : $args_ty:ty ) => $map_expr:expr => $summary:expr ) => {
+        $crate::register_tools!(@batch_with_desc_ctx $registry, $ctx, $desc, $client, $method ( _unused : $args_ty ) => $map_expr => $summary);
+    };
+
+    (@batch_with_desc_ctx $registry:expr, $ctx:expr, $desc:ident, $client:path, $method:ident ( $args:ident : $args_ty:ty, $ctx_arg:ident ) => $map_expr:expr => $summary:expr, $( $tail:tt )* ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            let ctx_val = $ctx.clone();
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    move |$args: $args_ty| {
+                        let $ctx_arg = ctx_val.clone();
+                        let input = $map_expr;
+                        async move { <$client>::new().$method(input).await }
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    move |$args: $args_ty| {
+                        let $ctx_arg = ctx_val.clone();
+                        let input = $map_expr;
+                        async move { <$client>::new().$method(input).await }
+                    },
+                    $summary,
+                );
+            }
+            $crate::register_tools!(@batch_with_desc_ctx $registry, $ctx, $desc, $client, $( $tail )*);
+        }
+    };
+    (@batch_with_desc_ctx $registry:expr, $ctx:expr, $desc:ident, $client:path, $method:ident ( $args:ident : $args_ty:ty, $ctx_arg:ident ) => $map_expr:expr => $summary:expr ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            let ctx_val = $ctx.clone();
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    move |$args: $args_ty| {
+                        let $ctx_arg = ctx_val.clone();
+                        let input = $map_expr;
+                        async move { <$client>::new().$method(input).await }
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    move |$args: $args_ty| {
+                        let $ctx_arg = ctx_val.clone();
+                        let input = $map_expr;
+                        async move { <$client>::new().$method(input).await }
+                    },
+                    $summary,
+                );
+            }
+        }
+    };
+    (@batch_with_desc_ctx $registry:expr, $ctx:expr, $desc:ident, $client:path, $method:ident ( $args:ident : $args_ty:ty ) => $map_expr:expr => $summary:expr, $( $tail:tt )* ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move { <$client>::new().$method(input).await }
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move { <$client>::new().$method(input).await }
+                    },
+                    $summary,
+                );
+            }
+            $crate::register_tools!(@batch_with_desc_ctx $registry, $ctx, $desc, $client, $( $tail )*);
+        }
+    };
+    (@batch_with_desc_ctx $registry:expr, $ctx:expr, $desc:ident, $client:path, $method:ident ( $args:ident : $args_ty:ty ) => $map_expr:expr => $summary:expr ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move { <$client>::new().$method(input).await }
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move { <$client>::new().$method(input).await }
+                    },
+                    $summary,
+                );
+            }
+        }
+    };
+    (@batch_with_desc_ctx $registry:expr, $ctx:expr, $desc:ident, $client:path, $method:ident => $summary:expr, $( $tail:tt )* ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    |args| async move { <$client>::new().$method(args).await },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    |args| async move { <$client>::new().$method(args).await },
+                    $summary,
+                );
+            }
+            $crate::register_tools!(@batch_with_desc_ctx $registry, $ctx, $desc, $client, $( $tail )*);
+        }
+    };
+    (@batch_with_desc_ctx $registry:expr, $ctx:expr, $desc:ident, $client:path, $method:ident => $summary:expr ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    |args| async move { <$client>::new().$method(args).await },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    |args| async move { <$client>::new().$method(args).await },
+                    $summary,
+                );
+            }
+        }
+    };
+    (@batch_with_desc_ctx $registry:expr, $ctx:expr, $desc:ident, $client:path $(,)? ) => {};
+
+    // 6. Batch expansion for Context + Impl
+    (@batch_impl_ctx $registry:expr, $ctx:expr, $tool_impl:path, $tool_trait:path, $( $tail:tt )* ) => {
+        {
+            let descriptor = <$tool_impl>::__tool_descriptor();
+            $crate::register_tools!(@batch_with_desc_impl_ctx $registry, $ctx, descriptor, $tool_impl, $tool_trait, $( $tail )*);
+        }
+    };
+    (@batch_with_desc_impl_ctx $registry:expr, $ctx:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident ( _ : $args_ty:ty, $ctx_arg:ident ) => $map_expr:expr => $summary:expr, $( $tail:tt )* ) => {
+        $crate::register_tools!(@batch_with_desc_impl_ctx $registry, $ctx, $desc, $tool_impl, $tool_trait, $method ( _unused : $args_ty, $ctx_arg ) => $map_expr => $summary, $( $tail )*);
+    };
+    (@batch_with_desc_impl_ctx $registry:expr, $ctx:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident ( _ : $args_ty:ty, $ctx_arg:ident ) => $map_expr:expr => $summary:expr ) => {
+        $crate::register_tools!(@batch_with_desc_impl_ctx $registry, $ctx, $desc, $tool_impl, $tool_trait, $method ( _unused : $args_ty, $ctx_arg ) => $map_expr => $summary);
+    };
+    (@batch_with_desc_impl_ctx $registry:expr, $ctx:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident ( _ : $args_ty:ty ) => $map_expr:expr => $summary:expr, $( $tail:tt )* ) => {
+        $crate::register_tools!(@batch_with_desc_impl_ctx $registry, $ctx, $desc, $tool_impl, $tool_trait, $method ( _unused : $args_ty ) => $map_expr => $summary, $( $tail )*);
+    };
+    (@batch_with_desc_impl_ctx $registry:expr, $ctx:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident ( _ : $args_ty:ty ) => $map_expr:expr => $summary:expr ) => {
+        $crate::register_tools!(@batch_with_desc_impl_ctx $registry, $ctx, $desc, $tool_impl, $tool_trait, $method ( _unused : $args_ty ) => $map_expr => $summary);
+    };
+
+    (@batch_with_desc_impl_ctx $registry:expr, $ctx:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident ( $args:ident : $args_ty:ty, $ctx_arg:ident ) => $map_expr:expr => $summary:expr, $( $tail:tt )* ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            let ctx_val = $ctx.clone();
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    move |$args: $args_ty| {
+                        let $ctx_arg = ctx_val.clone();
+                        let input = $map_expr;
+                        async move {
+                            use $crate::ai::tools::IntoToolResult;
+                            <$tool_impl as $tool_trait>::$method(&$tool_impl, input).await.into_tool_result()
+                        }
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    move |$args: $args_ty| {
+                        let $ctx_arg = ctx_val.clone();
+                        let input = $map_expr;
+                        async move {
+                            use $crate::ai::tools::IntoToolResult;
+                            <$tool_impl as $tool_trait>::$method(&$tool_impl, input).await.into_tool_result()
+                        }
+                    },
+                    $summary,
+                );
+            }
+            $crate::register_tools!(@batch_with_desc_impl_ctx $registry, $ctx, $desc, $tool_impl, $tool_trait, $( $tail )*);
+        }
+    };
+    (@batch_with_desc_impl_ctx $registry:expr, $ctx:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident ( $args:ident : $args_ty:ty, $ctx_arg:ident ) => $map_expr:expr => $summary:expr ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            let ctx_val = $ctx.clone();
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    move |$args: $args_ty| {
+                        let $ctx_arg = ctx_val.clone();
+                        let input = $map_expr;
+                        async move {
+                            use $crate::ai::tools::IntoToolResult;
+                            <$tool_impl as $tool_trait>::$method(&$tool_impl, input).await.into_tool_result()
+                        }
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    move |$args: $args_ty| {
+                        let $ctx_arg = ctx_val.clone();
+                        let input = $map_expr;
+                        async move {
+                            use $crate::ai::tools::IntoToolResult;
+                            <$tool_impl as $tool_trait>::$method(&$tool_impl, input).await.into_tool_result()
+                        }
+                    },
+                    $summary,
+                );
+            }
+        }
+    };
+    (@batch_with_desc_impl_ctx $registry:expr, $ctx:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident ( $args:ident : $args_ty:ty ) => $map_expr:expr => $summary:expr, $( $tail:tt )* ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move {
+                            use $crate::ai::tools::IntoToolResult;
+                            <$tool_impl as $tool_trait>::$method(&$tool_impl, input).await.into_tool_result()
+                        }
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move {
+                            use $crate::ai::tools::IntoToolResult;
+                            <$tool_impl as $tool_trait>::$method(&$tool_impl, input).await.into_tool_result()
+                        }
+                    },
+                    $summary,
+                );
+            }
+            $crate::register_tools!(@batch_with_desc_impl_ctx $registry, $ctx, $desc, $tool_impl, $tool_trait, $( $tail )*);
+        }
+    };
+    (@batch_with_desc_impl_ctx $registry:expr, $ctx:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident ( $args:ident : $args_ty:ty ) => $map_expr:expr => $summary:expr ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move {
+                            use $crate::ai::tools::IntoToolResult;
+                            <$tool_impl as $tool_trait>::$method(&$tool_impl, input).await.into_tool_result()
+                        }
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move {
+                            use $crate::ai::tools::IntoToolResult;
+                            <$tool_impl as $tool_trait>::$method(&$tool_impl, input).await.into_tool_result()
+                        }
+                    },
+                    $summary,
+                );
+            }
+        }
+    };
+    (@batch_with_desc_impl_ctx $registry:expr, $ctx:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident => $summary:expr, $( $tail:tt )* ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    |args| async move {
+                        use $crate::ai::tools::IntoToolResult;
+                        <$tool_impl as $tool_trait>::$method(&$tool_impl, args).await.into_tool_result()
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    |args| async move {
+                        use $crate::ai::tools::IntoToolResult;
+                        <$tool_impl as $tool_trait>::$method(&$tool_impl, args).await.into_tool_result()
+                    },
+                    $summary,
+                );
+            }
+            $crate::register_tools!(@batch_with_desc_impl_ctx $registry, $ctx, $desc, $tool_impl, $tool_trait, $( $tail )*);
+        }
+    };
+    (@batch_with_desc_impl_ctx $registry:expr, $ctx:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident => $summary:expr ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    |args| async move {
+                        use $crate::ai::tools::IntoToolResult;
+                        <$tool_impl as $tool_trait>::$method(&$tool_impl, args).await.into_tool_result()
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    |args| async move {
+                        use $crate::ai::tools::IntoToolResult;
+                        <$tool_impl as $tool_trait>::$method(&$tool_impl, args).await.into_tool_result()
+                    },
+                    $summary,
+                );
+            }
+        }
+    };
+    (@batch_with_desc_impl_ctx $registry:expr, $ctx:expr, $desc:ident, $tool_impl:path, $tool_trait:path $(,)? ) => {};
+
+    // 7. Batch expansion for in-process Impl calls (without context)
+    (@batch_impl $registry:expr, $tool_impl:path, $tool_trait:path, $( $tail:tt )* ) => {
+        {
+            let descriptor = <$tool_impl>::__tool_descriptor();
+            $crate::register_tools!(@batch_with_desc_impl $registry, descriptor, $tool_impl, $tool_trait, $( $tail )*);
+        }
+    };
+    (@batch_with_desc_impl $registry:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident ( _ : $args_ty:ty ) => $map_expr:expr => $summary:expr, $( $tail:tt )* ) => {
+        $crate::register_tools!(@batch_with_desc_impl $registry, $desc, $tool_impl, $tool_trait, $method ( _unused : $args_ty ) => $map_expr => $summary, $( $tail )*);
+    };
+    (@batch_with_desc_impl $registry:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident ( _ : $args_ty:ty ) => $map_expr:expr => $summary:expr ) => {
+        $crate::register_tools!(@batch_with_desc_impl $registry, $desc, $tool_impl, $tool_trait, $method ( _unused : $args_ty ) => $map_expr => $summary);
+    };
+    (@batch_with_desc_impl $registry:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident ( $args:ident : $args_ty:ty ) => $map_expr:expr => $summary:expr, $( $tail:tt )* ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move {
+                            use $crate::ai::tools::IntoToolResult;
+                            <$tool_impl as $tool_trait>::$method(&$tool_impl, input).await.into_tool_result()
+                        }
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move {
+                            use $crate::ai::tools::IntoToolResult;
+                            <$tool_impl as $tool_trait>::$method(&$tool_impl, input).await.into_tool_result()
+                        }
+                    },
+                    $summary,
+                );
+            }
+            $crate::register_tools!(@batch_with_desc_impl $registry, $desc, $tool_impl, $tool_trait, $( $tail )*);
+        }
+    };
+    (@batch_with_desc_impl $registry:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident ( $args:ident : $args_ty:ty ) => $map_expr:expr => $summary:expr ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move {
+                            use $crate::ai::tools::IntoToolResult;
+                            <$tool_impl as $tool_trait>::$method(&$tool_impl, input).await.into_tool_result()
+                        }
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move {
+                            use $crate::ai::tools::IntoToolResult;
+                            <$tool_impl as $tool_trait>::$method(&$tool_impl, input).await.into_tool_result()
+                        }
+                    },
+                    $summary,
+                );
+            }
+        }
+    };
+    (@batch_with_desc_impl $registry:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident => $summary:expr, $( $tail:tt )* ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    |args| async move {
+                        use $crate::ai::tools::IntoToolResult;
+                        <$tool_impl as $tool_trait>::$method(&$tool_impl, args).await.into_tool_result()
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    |args| async move {
+                        use $crate::ai::tools::IntoToolResult;
+                        <$tool_impl as $tool_trait>::$method(&$tool_impl, args).await.into_tool_result()
+                    },
+                    $summary,
+                );
+            }
+            $crate::register_tools!(@batch_with_desc_impl $registry, $desc, $tool_impl, $tool_trait, $( $tail )*);
+        }
+    };
+    (@batch_with_desc_impl $registry:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident => $summary:expr ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    |args| async move {
+                        use $crate::ai::tools::IntoToolResult;
+                        <$tool_impl as $tool_trait>::$method(&$tool_impl, args).await.into_tool_result()
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    |args| async move {
+                        use $crate::ai::tools::IntoToolResult;
+                        <$tool_impl as $tool_trait>::$method(&$tool_impl, args).await.into_tool_result()
+                    },
+                    $summary,
+                );
+            }
+        }
+    };
+    (@batch_with_desc_impl $registry:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident, $( $tail:tt )* ) => {
+        $crate::register_tools!(@batch_with_desc_impl $registry, $desc, $tool_impl, $tool_trait, $method => |_| concat!(stringify!($method), " completed").to_string(), $( $tail )*);
+    };
+    (@batch_with_desc_impl $registry:expr, $desc:ident, $tool_impl:path, $tool_trait:path, $method:ident ) => {
+        $crate::register_tools!(@batch_with_desc_impl $registry, $desc, $tool_impl, $tool_trait, $method => |_| concat!(stringify!($method), " completed").to_string());
+    };
+    (@batch_with_desc_impl $registry:expr, $desc:ident, $tool_impl:path, $tool_trait:path $(,)? ) => {};
+
+    // 4. Generic tool descriptor + client batch
+    ($registry:expr, $tool:ident, $client:ident, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch_full $registry, $tool, $client, $( $tail )*);
+    };
+    (@batch_full $registry:expr, $tool:path, $client:path, $( $tail:tt )* ) => {
+        {
+            let descriptor = <$tool>::__tool_descriptor();
+            $crate::register_tools!(@batch_with_desc $registry, descriptor, $client, $( $tail )*);
+        }
+    };
+    (@batch_with_desc $registry:expr, $desc:ident, $client:path, $method:ident ( _ : $args_ty:ty ) => $map_expr:expr => $summary:expr, $( $tail:tt )* ) => {
+        $crate::register_tools!(@batch_with_desc $registry, $desc, $client, $method ( _unused : $args_ty ) => $map_expr => $summary, $( $tail )*);
+    };
+    (@batch_with_desc $registry:expr, $desc:ident, $client:path, $method:ident ( _ : $args_ty:ty ) => $map_expr:expr => $summary:expr ) => {
+        $crate::register_tools!(@batch_with_desc $registry, $desc, $client, $method ( _unused : $args_ty ) => $map_expr => $summary);
+    };
+    (@batch_with_desc $registry:expr, $desc:ident, $client:path, $method:ident ( $args:ident : $args_ty:ty ) => $map_expr:expr => $summary:expr, $( $tail:tt )* ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move { <$client>::new().$method(input).await }
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move { <$client>::new().$method(input).await }
+                    },
+                    $summary,
+                );
+            }
+            $crate::register_tools!(@batch_with_desc $registry, $desc, $client, $( $tail )*);
+        }
+    };
+    (@batch_with_desc $registry:expr, $desc:ident, $client:path, $method:ident ( $args:ident : $args_ty:ty ) => $map_expr:expr => $summary:expr ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move { <$client>::new().$method(input).await }
+                    },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    move |$args: $args_ty| {
+                        let input = $map_expr;
+                        async move { <$client>::new().$method(input).await }
+                    },
+                    $summary,
+                );
+            }
+        }
+    };
+    (@batch_with_desc $registry:expr, $desc:ident, $client:path, $method:ident => $summary:expr, $( $tail:tt )* ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    |args| async move { <$client>::new().$method(args).await },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    |args| async move { <$client>::new().$method(args).await },
+                    $summary,
+                );
+            }
+            $crate::register_tools!(@batch_with_desc $registry, $desc, $client, $( $tail )*);
+        }
+    };
+    (@batch_with_desc $registry:expr, $desc:ident, $client:path, $method:ident => $summary:expr ) => {
+        {
+            let desc_opt = $crate::ai::tools::extract_tool_command_description(&$desc, stringify!($method));
+            if let Some(desc) = desc_opt {
+                let desc_static: &'static str = Box::leak(desc.into_boxed_str());
+                $registry.register_tool_call_with_desc(
+                    stringify!($method),
+                    desc_static,
+                    |args| async move { <$client>::new().$method(args).await },
+                    $summary,
+                );
+            } else {
+                $registry.register_tool_call(
+                    stringify!($method),
+                    |args| async move { <$client>::new().$method(args).await },
+                    $summary,
+                );
+            }
+        }
+    };
+    (@batch_with_desc $registry:expr, $desc:ident, $client:path, $method:ident, $( $tail:tt )* ) => {
+        $crate::register_tools!(@batch_with_desc $registry, $desc, $client, $method => |_| concat!(stringify!($method), " completed").to_string(), $( $tail )*);
+    };
+    (@batch_with_desc $registry:expr, $desc:ident, $client:path, $method:ident ) => {
+        $crate::register_tools!(@batch_with_desc $registry, $desc, $client, $method => |_| concat!(stringify!($method), " completed").to_string());
+    };
+    (@batch_with_desc $registry:expr, $desc:ident, $client:path $(,)? ) => {};
+
+    // 3. Client-only batch
+    ($registry:expr, $client:ident, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!(@batch $registry, $client, $( $tail )*);
+    };
+    (@batch $registry:expr, $client:ident, $method:ident, $desc:expr => $summary:expr, $( $tail:tt )* ) => {
+        $crate::register_tool!($registry, $client, $method, $desc, $summary);
+        $crate::register_tools!(@batch $registry, $client, $( $tail )*);
+    };
+    (@batch $registry:expr, $client:ident, $method:ident, $desc:expr => $summary:expr ) => {
+        $crate::register_tool!($registry, $client, $method, $desc, $summary);
+    };
+    (@batch $registry:expr, $client:ident, $method:ident => $summary:expr, $( $tail:tt )* ) => {
+        $crate::register_tool!($registry, $client, $method, $summary);
+        $crate::register_tools!(@batch $registry, $client, $( $tail )*);
+    };
+    (@batch $registry:expr, $client:ident, $method:ident => $summary:expr ) => {
+        $crate::register_tool!($registry, $client, $method, $summary);
+    };
+    (@batch $registry:expr, $client:ident, $method:ident, $( $tail:tt )* ) => {
+        $crate::register_tool!($registry, $client, $method);
+        $crate::register_tools!(@batch $registry, $client, $( $tail )*);
+    };
+    (@batch $registry:expr, $client:ident, $method:ident ) => {
+        $crate::register_tool!($registry, $client, $method);
+    };
+    (@batch $registry:expr, $client:ident $(,)? ) => {};
+}
+
+/// Registers tool calls directly against the in-process tool implementation struct (`*Impl`),
+/// bypassing Golem's ambient tool RPC client.
+/// Useful to avoid ambient client / streaming bugs or when direct in-process execution is desired.
+#[macro_export]
+macro_rules! register_tools_impl {
+    ($registry:expr, $tool:ident, context: $ctx:expr, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!($registry, $tool, context: $ctx, use_impl: true, [ $( $tail )* ]);
+    };
+    ($registry:expr, $tool:ident, [ $( $tail:tt )* ]) => {
+        $crate::register_tools!($registry, @impl $tool, [ $( $tail )* ]);
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,5 +1258,110 @@ mod tests {
         // Test unknown tool
         let (unknown_res, _) = registry.execute("no_such_tool", "{}").await;
         assert_eq!(unknown_res, "Unknown tool: no_such_tool");
+    }
+
+    struct MockEchoClient;
+    impl MockEchoClient {
+        fn new() -> Self {
+            Self
+        }
+        async fn echo_query(&self, args: MockSearchArgs) -> Result<String, String> {
+            Ok(format!("echo: {}", args.query))
+        }
+    }
+
+    #[wstd::test]
+    async fn test_register_tools_macro() {
+        let mut registry = ToolRegistry::new();
+        register_tools!(registry, MockEchoClient, [
+            echo_query => |res| format!("Result: {res}"),
+        ]);
+
+        assert_eq!(registry.specs().len(), 1);
+        assert_eq!(registry.specs()[0].name, "echo_query");
+
+        let (out, summary) = registry
+            .execute("echo_query", r#"{"query": "shoes"}"#)
+            .await;
+        assert_eq!(out, "\"echo: shoes\"");
+        assert_eq!(summary, "Result: echo: shoes");
+    }
+
+    #[test]
+    fn test_extract_golem_tool_doc() {
+        use crate::tools::catalog::{CatalogTools, CatalogToolsImpl};
+        let desc = CatalogToolsImpl::__tool_descriptor();
+        for cmd in &desc.commands {
+            println!("cmd: {} -> doc: {}", cmd.name, cmd.doc.summary);
+        }
+        let search_cmd = desc.commands.iter().find(|c| c.name == "search-products");
+        assert!(search_cmd.is_some());
+        assert_eq!(
+            search_cmd.unwrap().doc.summary,
+            "Search product catalog for items by name, brand, or query keywords with active prices"
+        );
+
+        // Verify manager tools automatically extracted trait method doc comments
+        let mgr_specs = crate::manager::tools::get_manager_tools();
+        let ship_spec = mgr_specs
+            .iter()
+            .find(|s| s.name == "ship_order")
+            .expect("ship_order spec");
+        assert_eq!(ship_spec.description, "Ship an existing new order");
+
+        let cancel_spec = mgr_specs
+            .iter()
+            .find(|s| s.name == "cancel_order")
+            .expect("cancel_order spec");
+        assert_eq!(cancel_spec.description, "Cancel an existing new order");
+
+        let update_ship_spec = mgr_specs
+            .iter()
+            .find(|s| s.name == "update_order_shipping_address")
+            .expect("update_order_shipping_address spec");
+        assert_eq!(
+            update_ship_spec.description,
+            "Update recipient shipping address on an existing order"
+        );
+    }
+
+    #[test]
+    fn test_register_tools_impl_macro() {
+        use crate::tools::catalog::CatalogTools;
+        use crate::tools::manager_order::ManagerOrderTools;
+
+        // 1. Test register_tools_impl!
+        let mut reg1 = ToolRegistry::new();
+        register_tools_impl!(reg1, ManagerOrderTools, [
+            ship_order => |u| format!("Shipped {}", u.order_id),
+        ]);
+        assert_eq!(reg1.specs().len(), 1);
+        assert_eq!(reg1.specs()[0].name, "ship_order");
+        assert_eq!(reg1.specs()[0].description, "Ship an existing new order");
+
+        // 2. Test register_tools! with use_impl: true
+        let mut reg2 = ToolRegistry::new();
+        register_tools!(reg2, CatalogTools, use_impl: true, [
+            search_products => |p| format!("Found {}", p.len()),
+        ]);
+        assert_eq!(reg2.specs().len(), 1);
+        assert_eq!(reg2.specs()[0].name, "search_products");
+
+        // 3. Test register_tools! with @impl
+        let mut reg3 = ToolRegistry::new();
+        register_tools!(reg3, @impl CatalogTools, [
+            search_products => |p| format!("Found {}", p.len()),
+        ]);
+        assert_eq!(reg3.specs().len(), 1);
+        assert_eq!(reg3.specs()[0].name, "search_products");
+
+        // 4. Test register_tools! with ManagerOrderToolsImpl directly
+        let mut reg4 = ToolRegistry::new();
+        register_tools!(reg4, ManagerOrderToolsImpl, [
+            ship_order => |u| format!("Shipped {}", u.order_id),
+        ]);
+        assert_eq!(reg4.specs().len(), 1);
+        assert_eq!(reg4.specs()[0].name, "ship_order");
+        assert_eq!(reg4.specs()[0].description, "Ship an existing new order");
     }
 }

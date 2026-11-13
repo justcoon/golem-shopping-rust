@@ -40,20 +40,44 @@ We completely unified the tool architecture so that **Golem Platform Tools (`#[t
 - Over 350 lines of manual string parsing inside a massive `match tool_name` block.
 - Duplicated again in `manager/tools.rs`.
 
-### After (Direct Tool Definition & Mounting)
+### After (Direct Tool Definition & Mounting via `register_tools!`)
 - All capability logic lives in `src/tools/`:
   - `catalog.rs`
   - `inventory.rs`
   - `cart.rs`
   - `customer_order.rs`
   - `manager_order.rs`
-- Assistants mount their relevant tools cleanly:
+- `src/tools/mod.rs` contains purely clean exports with zero AI-related boilerplate.
+- Assistants mount their relevant tools cleanly with zero description duplication (supporting both client RPC and in-process direct calls):
   ```rust
   let mut registry = ToolRegistry::new();
-  CatalogToolsImpl::register(&mut registry);
-  InventoryToolsImpl::register(&mut registry);
-  CartToolsImpl::register(user_id.clone(), &mut registry);
-  CustomerOrderToolsImpl::register(user_id, &mut registry);
+  // Using ambient RPC client:
+  register_tools!(registry, CatalogTools, [
+      search_products => |products| format!("Found {} product(s)", products.len()),
+      get_product_details => |p| match p {
+          Some(p) => format!("Details for {} ({})", p.name, p.product_id),
+          None => "Product not found".to_string(),
+      },
+  ]);
+
+  // Or in-process direct implementation calls (bypassing tool client RPC):
+  register_tools_impl!(registry, ManagerOrderTools, [
+      ship_order => |u| format!("Order {} has been shipped", u.order_id),
+  ]);
+  // Or using the boolean flag:
+  register_tools!(registry, ManagerOrderTools, use_impl: true, [ ... ]);
+
+  // Mapped tool arguments with ambient session context (e.g. user_id):
+  register_tools!(registry, CartTools, context: user_id, [
+      get_cart(_: EmptyInput, uid) => UserCartInput {
+          user_id: uid.clone(),
+      } => |cart| match cart { ... },
+      update_cart_quantity(args: UpdateCartQuantityArgs, uid) => UpdateCartQuantityInput {
+          user_id: uid.clone(),
+          product_id: args.product_id,
+          quantity: args.quantity,
+      } => |_| "Cart quantity updated successfully".to_string(),
+  ]);
   ```
 
 ---
@@ -65,20 +89,28 @@ All strict Rust and Golem verification gates passed successfully:
 | Check | Command | Result |
 |---|---|---|
 | **Code Formatting** | `cargo fmt --check` | Passed |
-| **Type Checking (WASM)** | `cargo check --target wasm32-wasip2` | Passed (0 errors, 0 warnings) |
+| **Type Checking (WASM)** | `cargo check --target wasm32-wasip2` | Passed (0 errors) |
 | **Clippy Linting** | `cargo clippy --target wasm32-wasip2` | Passed (0 errors) |
-| **Unit Tests** | `cargo test --lib` | 22/22 tests passed |
+| **Unit Tests** | `cargo test --lib` | 33/33 tests passed |
+| **Golem Component Build** | `golem build --yes` | Passed |
 | **Golem WASM Build** | `golem build --yes` | Passed (`Finished building [OK]`) |
 | **Golem Deployment Planning** | `golem deploy --plan` | Passed (`Finished planning [OK]`) |
 
 ---
 
-## 4. Deployment Instructions
+## 4. Deployment Instructions & Split MCP Endpoints
 
+Deploy to the local development server:
 ```bash
-# Deploy to local development server:
 golem deploy --yes
-
-# The MCP server will be live at:
-# http://localhost:9007/mcp
 ```
+
+The application provides two isolated, role-specific MCP endpoints running under Streamable HTTP:
+
+1. **Customer Shopping MCP (`shop-mcp`)**:
+   - URL: `http://shop-mcp.localhost:9007/mcp`
+   - Tools: `catalog-tools`, `inventory-tools`, `cart-tools`, `customer-order-tools`
+
+2. **Store Manager MCP (`manager-mcp`)**:
+   - URL: `http://manager-mcp.localhost:9007/mcp`
+   - Tools: `catalog-tools`, `inventory-tools`, `manager-order-tools`

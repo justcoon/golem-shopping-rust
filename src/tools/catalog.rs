@@ -1,4 +1,3 @@
-use crate::ai::tools::ToolRegistry;
 use crate::product_search::{ProductSearchAgentClient, ProductWithPrice};
 use golem_rust::{Schema, tool_definition, tool_implementation};
 use schemars::JsonSchema;
@@ -56,25 +55,5 @@ impl CatalogTools for CatalogToolsImpl {
             Ok(mut products) => products.pop(),
             Err(_) => None,
         }
-    }
-}
-
-impl CatalogToolsImpl {
-    /// Registers catalog tools into a `ToolRegistry` for LLM consumption.
-    pub fn register(registry: &mut ToolRegistry) {
-        registry.register_tool_call(
-            "search_products",
-            |args| async move { CatalogToolsClient::new().search_products(args).await },
-            |products| format!("Found {} product(s)", products.len()),
-        );
-
-        registry.register_tool_call(
-            "get_product_details",
-            |args| async move { CatalogToolsClient::new().get_product_details(args).await },
-            |p| match p {
-                Some(p) => format!("Details for {} ({})", p.name, p.product_id),
-                None => "Product not found".to_string(),
-            },
-        );
     }
 }

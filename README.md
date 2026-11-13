@@ -1,7 +1,7 @@
 # golem-shopping-rust
 
 ## Overview
-This is a simple e-commerce application built with an agent-based architecture, leveraging Golem Cloud for distributed, stateful agents. The application provides a complete online shopping experience with product browsing, cart management, order processing, and an AI-powered shopping assistant.
+This is an e-commerce application built with an agent-based architecture, leveraging Golem Cloud for distributed, stateful agents and first-class platform tools. The application provides a complete online shopping experience with product browsing, cart management, two-phase checkout reservation, order lifecycle management, an AI-powered shopping assistant, a store operations manager, and native Model Context Protocol (MCP) integration.
 
 ![Architecture Diagram](architecture.png)
 
@@ -17,12 +17,22 @@ This is a simple e-commerce application built with an agent-based architecture, 
 - **Order Agent**: Manages the end-to-end order lifecycle from checkout to fulfillment.
 - **Product Search Agent**: Provides catalog search with flexible query filtering (keywords, brands, tags).
 - **Order Search Agent**: Provides system-wide order search, filtering by status, user ID, or free-text query, and date sorting.
-- **Shopping Assistant Agent**: Autonomous AI assistant that plans and executes multi-turn tool calling across domain agents using durable Golem RPC.
+- **Shopping Assistant Agent**: Autonomous AI assistant that plans and executes multi-turn tool calling across domain agents using durable execution.
 - **Shopping Recommendation Agent**: Generates and stores personalized product and brand recommendations asynchronously based on user order history and catalog trends.
 - **Manager Agent**: Autonomous AI assistant for store managers to search, modify, ship, and cancel orders, and inspect catalog/inventory.
 
+### First-Class Golem Tools (`src/tools/`)
+The application defines strongly typed Golem platform tools (`#[tool_definition]`) that serve as the **single source of truth** for both the internal AI assistants and external MCP clients:
+- **`catalog-tools`**: Product catalog keyword/brand search and product detail lookups.
+- **`inventory-tools`**: Regional stock availability and inventory checks.
+- **`cart-tools`**: Cart inspection, item additions, quantity updates, item removals, contact details, and two-phase checkout (`prepare_checkout`, `confirm_checkout`, `cancel_checkout`).
+- **`customer-order-tools`**: Customer-scoped order history and order tracking.
+- **`manager-order-tools`**: Store operations order search, recent order listings, fulfillment shipping, cancellations, item edits, and address updates.
+
 ### Key Features
 - **Two-Phase Checkout & Reservation**: Time-bounded inventory reservations (10-minute hold window) during checkout preparation, preventing race conditions and cart modifications until confirmation or cancellation.
+- **Model Context Protocol (MCP) Integration**: Built-in Streamable HTTP MCP server on port `9007` exposing isolated, role-segregated endpoints for customer shopping (`shop-mcp`) and operations management (`manager-mcp`).
+- **First-Class Tools & Direct In-Process Execution**: Assistants mount tools declaratively using `register_tools!`, with seamless support for both ambient client RPC and direct in-process execution (`use_impl: true`).
 - **RESTful HTTP API**: All agents expose HTTP endpoints declared in `golem.yaml` and mapped directly to agent methods.
 - **Built-in Web Interfaces**: Zero-setup web clients served directly by Golem:
   - `/assistant`: Customer shopping assistant with real-time SSE streaming, collapsible tool inspection, and dynamic recommendations.
@@ -40,7 +50,7 @@ This is a simple e-commerce application built with an agent-based architecture, 
 - Running Golem environment (local or cloud). See [Golem Quickstart](https://learn.golem.cloud/quickstart) for more information.
 
 ### 2. LLM Configuration
-The Shopping Assistant requires an LLM provider configured in `golem.yaml` under `secretDefaults.local.llm`:
+The Shopping Assistant and Store Manager require an LLM provider configured in `golem.yaml` under `secretDefaults.local.llm`:
 
 #### Option A: Google Gemini (Default)
 Export your Gemini API key:
@@ -54,7 +64,7 @@ secretDefaults:
     llm:
       apiKey: '{{ GEMINI_API_KEY }}'
       model: "gemini-3.1-flash-lite"
-      apiUrl: "https://generativelanguage.googleapis.com/v1beta"
+      apiUrl: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 ```
 
 #### Option B: OpenRouter
@@ -111,3 +121,12 @@ npm install
 npm run dev
 ```
 The application will be available at `http://localhost:3000`. See the [Frontend README](./frontend/README.md) for more details.
+
+### 8. Model Context Protocol (MCP) Server Access
+Golem provides two role-isolated MCP endpoints using the **Streamable HTTP** transport on port **9007**:
+
+| Endpoint | Subdomain URL | Included Tools |
+|---|---|---|
+| **Customer Shopping** | `http://shop-mcp.localhost:9007/mcp` | `cart_tools_*`, `catalog_tools_*`, `customer_order_tools_*`, `inventory_tools_*` |
+| **Store Manager** | `http://manager-mcp.localhost:9007/mcp` | `catalog_tools_*`, `inventory_tools_*`, `manager_order_tools_*` |
+

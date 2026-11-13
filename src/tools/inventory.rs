@@ -1,4 +1,3 @@
-use crate::ai::tools::ToolRegistry;
 use crate::inventory::{Availability, InventoryAgentClient};
 use golem_rust::{Schema, tool_definition, tool_implementation};
 use schemars::JsonSchema;
@@ -31,21 +30,5 @@ impl InventoryTools for InventoryToolsImpl {
         inventory_client
             .get_available_quantity(region.to_string())
             .await
-    }
-}
-
-impl InventoryToolsImpl {
-    /// Registers inventory tools into a `ToolRegistry` for LLM consumption.
-    pub fn register(registry: &mut ToolRegistry) {
-        registry.register_tool_call(
-            "check_inventory",
-            |args| async move { InventoryToolsClient::new().check_inventory(args).await },
-            |avail| {
-                format!(
-                    "Product {} has {} available in region {} (total: {})",
-                    avail.product_id, avail.available_quantity, avail.region, avail.total_quantity
-                )
-            },
-        );
     }
 }

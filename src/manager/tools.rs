@@ -1,8 +1,7 @@
 use crate::ai::agent_loop::{ToolDispatcher, ToolSpec};
 use crate::ai::tools::ToolRegistry;
-use crate::tools::catalog::CatalogToolsImpl;
-use crate::tools::inventory::InventoryToolsImpl;
-use crate::tools::manager_order::ManagerOrderToolsImpl;
+use crate::register_tools;
+use crate::tools::*;
 
 pub const MANAGER_SYSTEM_PROMPT: &str = r#"You are an intelligent, capable, and efficient Store Operations Manager Assistant for our e-commerce platform.
 You have access to tools to manage and inspect orders, products, and inventory:
@@ -26,9 +25,44 @@ Guidelines:
 /// Builds the store manager tool registry by mounting the Golem tool implementations.
 pub fn build_manager_tools() -> ToolRegistry {
     let mut registry = ToolRegistry::new();
-    CatalogToolsImpl::register(&mut registry);
-    InventoryToolsImpl::register(&mut registry);
-    ManagerOrderToolsImpl::register(&mut registry);
+
+    register_tools!(registry, CatalogTools, use_impl: true, [
+        search_products => |products| format!("Found {} product(s)", products.len()),
+        get_product_details => |p| match p {
+            Some(p) => format!("Details for {} ({})", p.name, p.product_id),
+            None => "Product not found".to_string(),
+        },
+    ]);
+
+    register_tools!(registry, InventoryTools, use_impl: true, [
+        check_inventory => |avail| {
+            format!(
+                "Product {} has {} available in region {} (total: {})",
+                avail.product_id, avail.available_quantity, avail.region, avail.total_quantity
+            )
+        },
+    ]);
+
+    register_tools!(registry, ManagerOrderTools, use_impl: true, [
+        search_orders => |orders| format!("Found {} matching order(s)", orders.len()),
+        list_recent_orders => |orders| format!("Retrieved {} recent order(s)", orders.len()),
+        get_order_details => |o| match o {
+            Some(o) => format!(
+                "Retrieved order {} (Status: {:?}, Total: ${:.2}, Items: {})",
+                o.order_id, o.order_status, o.total, o.items.len()
+            ),
+            None => "Order not found".to_string(),
+        },
+        ship_order => |u| format!("Order {} has been successfully shipped", u.order_id),
+        cancel_order => |u| format!("Order {} has been successfully cancelled", u.order_id),
+        add_order_item => |u| format!("Added item to order {}", u.order_id),
+        remove_order_item => |u| format!("Removed item from order {}", u.order_id),
+        update_order_item_quantity => |u| format!("Updated item quantity on order {}", u.order_id),
+        update_order_shipping_address => |u| format!("Updated shipping address on order {}", u.order_id),
+        update_order_billing_address => |u| format!("Updated billing address on order {}", u.order_id),
+        update_order_email => |u| format!("Updated customer email on order {}", u.order_id),
+    ]);
+
     registry
 }
 
