@@ -10,7 +10,7 @@
 
 We have implemented the `OrderSearchAgent` for the Golem Shopping Rust application. This agent enables customers, administrators, and the `ShoppingAssistantAgent` to discover, filter, and inspect orders placed across the system.
 
-The implementation directly mirrors the design of `golem-shopping-effect` while adhering to the idiomatic Rust patterns established in [`ProductSearchAgent`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/product_search/mod.rs).
+The implementation directly mirrors the design of `golem-shopping-effect` while adhering to the idiomatic Rust patterns established in [`ProductSearchAgent`](../../src/product_search/mod.rs).
 
 ---
 
@@ -18,7 +18,7 @@ The implementation directly mirrors the design of `golem-shopping-effect` while 
 
 ### 2.1 Core Implementation
 
-1. **[`src/order_search/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/order_search/mod.rs)**:
+1. **[`src/order_search/mod.rs`](../../src/order_search/mod.rs)**:
    - **`OrderSearchAgent` Trait**:
      - `#[agent_definition(ephemeral, mount = "/v1/order-search")]`
      - `search_orders`: `GET /search?query={query}&status={status}&userId={user_id}&limit={limit}`
@@ -38,20 +38,20 @@ The implementation directly mirrors the design of `golem-shopping-effect` while 
    - **Unit Tests**:
      - In-memory unit tests validating ID regex parsing, field filtering, free-text term matching, and quoted tokens.
 
-2. **[`src/order/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/order/mod.rs)**:
+2. **[`src/order/mod.rs`](../../src/order/mod.rs)**:
    - Derived `Debug` on `OrderStatus` to enable diagnostic logging.
 
-3. **[`src/lib.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/lib.rs)**:
+3. **[`src/lib.rs`](../../src/lib.rs)**:
    - Registered `pub mod order_search;`.
 
 ### 2.2 Manifest & Architecture Documentation
 
-1. **[`golem.yaml`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/golem.yaml)**:
+1. **[`golem.yaml`](../../golem.yaml)**:
    - Registered `OrderSearchAgent: {}` under `httpApi.deployments.local.agents`.
-2. **[`architecture.puml`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/architecture.puml)**:
+2. **[`architecture.puml`](../../architecture.puml)**:
    - Added `[Order Search Agent] as order_search #D1F2EB` component.
    - Added gateway routing `/v1/order-search/** → Order Search Agent` and RPC edge `order_search --> order`.
-3. **[`README.md`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/README.md)**:
+3. **[`README.md`](../../README.md)**:
    - Added `Order Search Agent` to application components list.
 
 ---

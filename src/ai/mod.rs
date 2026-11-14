@@ -1,8 +1,10 @@
 pub mod agent_loop;
 pub mod schema;
+pub mod tools;
 
 pub use agent_loop::*;
 pub use schema::*;
+pub use tools::*;
 
 #[cfg(test)]
 mod tests {

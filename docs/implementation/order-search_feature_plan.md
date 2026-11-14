@@ -8,7 +8,7 @@
 
 ## 1. Overview & Goals
 
-This feature introduces an `OrderSearchAgent` to the Golem Shopping Rust application, mirroring the capabilities in [`golem-shopping-effect`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/order-search/order-search-agent.ts) while strictly adhering to the Rust idiomatic patterns demonstrated by [`ProductSearchAgent`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/product_search/mod.rs).
+This feature introduces an `OrderSearchAgent` to the Golem Shopping Rust application, mirroring the capabilities in [`golem-shopping-effect`](https://github.com/golemcloud/golem-shopping-effect/src/agents/order-search/order-search-agent.ts) while strictly adhering to the Rust idiomatic patterns demonstrated by [`ProductSearchAgent`](../../src/product_search/mod.rs).
 
 The `OrderSearchAgent` enables customers, store administrators, and AI assistants (such as `ShoppingAssistantAgent`) to discover, query, filter, and inspect orders placed across the system.
 
@@ -42,7 +42,7 @@ The `OrderSearchAgent` enables customers, store administrators, and AI assistant
 
 ### 2.1 Pattern Alignment with `ProductSearchAgent`
 
-In [`src/product_search/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/product_search/mod.rs), the agent leverages:
+In [`src/product_search/mod.rs`](../../src/product_search/mod.rs), the agent leverages:
 1. `resolve_component_id("shopping-rust:shopping")` stored on the agent struct.
 2. `get_agent_filter() -> AgentAnyFilter` with `StartsWith` filter on `"OrderAgent("`.
 3. `get_order_agent_id(agent_name: &str) -> Option<String>` extracting the ID via regex `r#"OrderAgent\("([^)]+)"\)"#`.
@@ -63,7 +63,7 @@ flowchart TD
 
 ### 2.2 Query Matcher (`OrderQueryMatcher`)
 
-Matches the tokenizer and query evaluator pattern in `ProductSearchAgent` adapted for [`Order`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/order/mod.rs):
+Matches the tokenizer and query evaluator pattern in `ProductSearchAgent` adapted for [`Order`](../../src/order/mod.rs):
 - **Field Filters**:
   - `orderid:<id>` or `id:<id>`: exact matching against `order.order_id` (case-insensitive).
   - `userid:<id>`: exact matching against `order.user_id` (case-insensitive).
@@ -115,12 +115,12 @@ pub trait OrderSearchAgent {
 
 | Action | File Path | Description |
 | :--- | :--- | :--- |
-| `[NEW]` | [`src/order_search/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/order_search/mod.rs) | `OrderSearchAgent` definition, implementation, `OrderQueryMatcher`, discovery logic, sorting, and unit tests. |
-| `[MODIFY]` | [`src/order/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/order/mod.rs) | Add `Debug` derive to `OrderStatus` for logging and diagnostic printing. |
-| `[MODIFY]` | [`src/lib.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/lib.rs) | Register and export `pub mod order_search;`. |
-| `[MODIFY]` | [`golem.yaml`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/golem.yaml) | Register `OrderSearchAgent: {}` in `httpApi.deployments.local.agents`. |
-| `[MODIFY]` | [`architecture.puml`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/architecture.puml) | Add `Order Search Agent` component, endpoint notes, and interaction arrows. |
-| `[MODIFY]` | [`README.md`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/README.md) | Document `Order Search Agent` in application overview and components list. |
+| `[NEW]` | [`src/order_search/mod.rs`](../../src/order_search/mod.rs) | `OrderSearchAgent` definition, implementation, `OrderQueryMatcher`, discovery logic, sorting, and unit tests. |
+| `[MODIFY]` | [`src/order/mod.rs`](../../src/order/mod.rs) | Add `Debug` derive to `OrderStatus` for logging and diagnostic printing. |
+| `[MODIFY]` | [`src/lib.rs`](../../src/lib.rs) | Register and export `pub mod order_search;`. |
+| `[MODIFY]` | [`golem.yaml`](../../golem.yaml) | Register `OrderSearchAgent: {}` in `httpApi.deployments.local.agents`. |
+| `[MODIFY]` | [`architecture.puml`](../../architecture.puml) | Add `Order Search Agent` component, endpoint notes, and interaction arrows. |
+| `[MODIFY]` | [`README.md`](../../README.md) | Document `Order Search Agent` in application overview and components list. |
 
 ---
 

@@ -10,4 +10,5 @@ pub mod product;
 pub mod product_search;
 pub mod recommendation;
 pub mod shopping_assistant;
+pub mod tools;
 pub mod web;

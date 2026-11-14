@@ -8,12 +8,12 @@
 
 ## 1. Overview & Goals
 
-In [`golem-shopping-effect`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/cart/cart-agent.ts), `CartAgent` provides convenience methods to simplify customer checkout and order tracking:
+In [`golem-shopping-effect`](https://github.com/golemcloud/golem-shopping-effect/src/agents/cart/cart-agent.ts), `CartAgent` provides convenience methods to simplify customer checkout and order tracking:
 1. **`getSavedContactInfo`**: Inspects previous order history to extract the last-used shipping address, billing address, and email for 1-click checkout preview.
 2. **`applySavedContactInfo`**: Applies the saved addresses and contact email from the customer's last order directly onto the active cart.
 3. **`getOrderHistory`**: Retrieves the customer's previous `Order` instances (sorted newest first, with configurable limit).
 
-This feature brings these capabilities to the Rust implementation in [`src/cart/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/cart/mod.rs).
+This feature brings these capabilities to the Rust implementation in [`src/cart/mod.rs`](../../src/cart/mod.rs).
 
 ### Goals
 
@@ -66,7 +66,7 @@ pub struct SavedContactInfo {
 
 ### 2.3 Agent Trait Updates
 
-In [`src/cart/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/cart/mod.rs):
+In [`src/cart/mod.rs`](../../src/cart/mod.rs):
 
 ```rust
 #[agent_definition(mount = "/v1/cart/{id}")]
@@ -173,9 +173,9 @@ pub trait CartAgent {
 
 | Action | File Path | Description |
 | :--- | :--- | :--- |
-| `[MODIFY]` | [`src/cart/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/cart/mod.rs) | Add `SavedContactInfo`, prompt/description imports, and implementations of `get_saved_contact_info`, `apply_saved_contact_info`, and `get_order_history`. Add unit tests. |
-| `[MODIFY]` | [`architecture.puml`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/architecture.puml) | Document `/v1/cart/{id}/saved-contact`, `/use-saved-contact`, `/orders` in gateway notes. |
-| `[MODIFY]` | [`README.md`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/README.md) | Update `Cart Agent` description with saved contact and order history features. |
+| `[MODIFY]` | [`src/cart/mod.rs`](../../src/cart/mod.rs) | Add `SavedContactInfo`, prompt/description imports, and implementations of `get_saved_contact_info`, `apply_saved_contact_info`, and `get_order_history`. Add unit tests. |
+| `[MODIFY]` | [`architecture.puml`](../../architecture.puml) | Document `/v1/cart/{id}/saved-contact`, `/use-saved-contact`, `/orders` in gateway notes. |
+| `[MODIFY]` | [`README.md`](../../README.md) | Update `Cart Agent` description with saved contact and order history features. |
 
 ---
 

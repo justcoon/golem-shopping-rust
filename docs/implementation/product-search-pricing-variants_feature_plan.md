@@ -8,7 +8,7 @@
 
 ## 1. Overview & Goals
 
-In [`golem-shopping-effect`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/product-search/product-search-agent.ts), `ProductSearchAgent` provides enriched endpoints that combine catalog product details with active regional prices (from `PricingAgent`) and real-time inventory availability (from `InventoryAgent`). It also provides batch product retrieval by comma-separated product IDs (`getByIds`).
+In [`golem-shopping-effect`](https://github.com/golemcloud/golem-shopping-effect/src/agents/product-search/product-search-agent.ts), `ProductSearchAgent` provides enriched endpoints that combine catalog product details with active regional prices (from `PricingAgent`) and real-time inventory availability (from `InventoryAgent`). It also provides batch product retrieval by comma-separated product IDs (`getByIds`).
 
 Furthermore, to maximize performance, cache efficiency, and throughput of both batch lookups and search sweeps across many products, we will mark the underlying query methods in `ProductAgent`, `PricingAgent`, and `InventoryAgent` as **`#[read_only]`**.
 
@@ -222,12 +222,12 @@ async fn attach_pricing_to_products(
 
 | Action | File Path | Description |
 | :--- | :--- | :--- |
-| `[MODIFY]` | [`src/product_search/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/product_search/mod.rs) | Add `ProductWithPrice`, `fetch_products_by_ids`, `attach_pricing_to_products`, endpoints `get_by_ids`, `get_by_ids_with_prices`, `search_with_prices`, prompt annotations, and unit tests. |
-| `[MODIFY]` | [`src/product/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/product/mod.rs) | Add `#[read_only]` to `get_product`. |
-| `[MODIFY]` | [`src/pricing/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/pricing/mod.rs) | Add `#[read_only]` to `get_price` and `get_pricing`. |
-| `[MODIFY]` | [`src/inventory/mod.rs`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/src/inventory/mod.rs) | Add `#[read_only]` to `get_available_quantity` and `get_inventory`. |
-| `[MODIFY]` | [`architecture.puml`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/architecture.puml) | Add RPC arrows `product_search --> pricing` and `product_search --> inventory`; update gateway note. |
-| `[MODIFY]` | [`README.md`](file:///Users/coon/workspace-zv/git/golem-shopping-rust/README.md) | Update `Product Search Agent` description to reflect pricing and inventory search capabilities. |
+| `[MODIFY]` | [`src/product_search/mod.rs`](../../src/product_search/mod.rs) | Add `ProductWithPrice`, `fetch_products_by_ids`, `attach_pricing_to_products`, endpoints `get_by_ids`, `get_by_ids_with_prices`, `search_with_prices`, prompt annotations, and unit tests. |
+| `[MODIFY]` | [`src/product/mod.rs`](../../src/product/mod.rs) | Add `#[read_only]` to `get_product`. |
+| `[MODIFY]` | [`src/pricing/mod.rs`](../../src/pricing/mod.rs) | Add `#[read_only]` to `get_price` and `get_pricing`. |
+| `[MODIFY]` | [`src/inventory/mod.rs`](../../src/inventory/mod.rs) | Add `#[read_only]` to `get_available_quantity` and `get_inventory`. |
+| `[MODIFY]` | [`architecture.puml`](../../architecture.puml) | Add RPC arrows `product_search --> pricing` and `product_search --> inventory`; update gateway note. |
+| `[MODIFY]` | [`README.md`](../../README.md) | Update `Product Search Agent` description to reflect pricing and inventory search capabilities. |
 
 ---
 
