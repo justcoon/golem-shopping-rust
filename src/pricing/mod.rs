@@ -186,7 +186,7 @@ fn merge_sale_items(
     }
 }
 
-#[agent_definition(mount = "/v1/pricing/{id}")]
+#[agent_definition(mount = "/v1/pricing/{id}", snapshotting = "every(10)")]
 pub trait PricingAgent {
     fn new(id: String) -> Self;
 

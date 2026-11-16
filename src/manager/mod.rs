@@ -7,7 +7,7 @@ use tools::*;
 
 pub const MANAGER_NO_KEY_MSG: &str = "Manager assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.";
 
-#[agent_definition(mount = "/v1/manager/{id}")]
+#[agent_definition(mount = "/v1/manager/{id}", snapshotting = "every(10)")]
 pub trait ManagerAgent {
     fn new(id: String, #[agent_config] config: Config<AgentConfig>) -> Self;
 

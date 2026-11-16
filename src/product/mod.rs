@@ -12,7 +12,7 @@ pub struct Product {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[agent_definition(mount = "/v1/product/{id}")]
+#[agent_definition(mount = "/v1/product/{id}", snapshotting = "every(10)")]
 pub trait ProductAgent {
     fn new(id: String) -> Self;
 
