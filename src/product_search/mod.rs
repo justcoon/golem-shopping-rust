@@ -146,8 +146,8 @@ fn get_product_agent_id(agent_name: &str) -> Option<String> {
     Regex::new(r#"ProductAgent\("([^)]+)"\)"#)
         .ok()?
         .captures(agent_name)
-        .filter(|caps| caps.len() > 0)
-        .map(|caps| caps[1].to_string())
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str().to_string())
 }
 
 async fn get_products(

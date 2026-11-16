@@ -7,7 +7,7 @@ use crate::ai::{
 use golem_rust::agentic::{AgentStream, Config, spawn_local};
 use golem_rust::{agent_definition, agent_implementation, endpoint, read_only};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use tools::*;
 
 #[derive(Serialize, Deserialize)]
@@ -43,7 +43,12 @@ pub struct ManagerAgentImpl {
 impl ManagerAgentImpl {
     async fn execute_turn(&mut self, message: String) -> ChatTurnResult {
         let tools = build_manager_tools();
-        let mut messages = { self.messages.lock().unwrap().clone() };
+        let mut messages = {
+            self.messages
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone()
+        };
         let result = process_chat_turn(
             &self.config,
             &mut messages,
@@ -54,7 +59,7 @@ impl ManagerAgentImpl {
             &tools,
         )
         .await;
-        *self.messages.lock().unwrap() = messages;
+        *self.messages.lock().unwrap_or_else(PoisonError::into_inner) = messages;
         result
     }
 }
@@ -104,11 +109,17 @@ impl ManagerAgent for ManagerAgentImpl {
     }
 
     fn get_history(&self) -> Vec<ChatMessage> {
-        self.messages.lock().unwrap().clone()
+        self.messages
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     fn clear_history(&mut self) {
-        self.messages.lock().unwrap().clear();
+        self.messages
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
     }
 
     async fn load_snapshot(
@@ -136,7 +147,11 @@ impl ManagerAgent for ManagerAgentImpl {
 
     async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
         let snapshot = ManagerSnapshot {
-            messages: self.messages.lock().unwrap().clone(),
+            messages: self
+                .messages
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone(),
         };
         crate::common::snapshot::serialize(&snapshot)
     }

@@ -6,7 +6,7 @@ use golem_rust::http::{self, Request};
 use http_body_util::BodyExt;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 pub const MAX_LOOP_TURNS: usize = 10;
 
@@ -398,6 +398,114 @@ pub fn extract_json_str(text: &str) -> &str {
     trimmed
 }
 
+fn build_initial_messages(
+    system_prompt: &str,
+    history: &[ChatMessage],
+    user_message: &str,
+    is_gemini: bool,
+) -> Vec<OpenAiMessage> {
+    let mut messages: Vec<OpenAiMessage> = Vec::new();
+    messages.push(OpenAiMessage {
+        role: "system".to_string(),
+        content: Some(system_prompt.to_string()),
+        tool_calls: None,
+        tool_call_id: None,
+        extra_content: None,
+        extra: std::collections::HashMap::new(),
+    });
+
+    for h in history {
+        match h.role {
+            ChatRole::User => messages.push(OpenAiMessage {
+                role: "user".to_string(),
+                content: Some(h.content.clone()),
+                tool_calls: None,
+                tool_call_id: None,
+                extra_content: None,
+                extra: std::collections::HashMap::new(),
+            }),
+            ChatRole::Assistant => {
+                if let Some(ref tool_calls) = h.tool_calls
+                    && !tool_calls.is_empty()
+                {
+                    let mut open_ai_tcs = Vec::new();
+                    for tc in tool_calls {
+                        let mut oatc = OpenAiToolCall {
+                            id: tc.id.clone(),
+                            r#type: "function".to_string(),
+                            function: OpenAiToolCallFunction {
+                                name: tc.tool_name.clone(),
+                                arguments: tc.arguments.clone(),
+                                extra: std::collections::HashMap::new(),
+                            },
+                            extra_content: None,
+                            extra: std::collections::HashMap::new(),
+                        };
+                        if is_gemini {
+                            ensure_gemini_thought_signature(&mut oatc);
+                        }
+                        open_ai_tcs.push(oatc);
+                    }
+
+                    // Assistant message that issued the tool call(s)
+                    messages.push(OpenAiMessage {
+                        role: "assistant".to_string(),
+                        content: None,
+                        tool_calls: Some(open_ai_tcs),
+                        tool_call_id: None,
+                        extra_content: None,
+                        extra: std::collections::HashMap::new(),
+                    });
+
+                    // Tool response message(s)
+                    for tc in tool_calls {
+                        messages.push(OpenAiMessage {
+                            role: "tool".to_string(),
+                            content: Some(tc.result.clone()),
+                            tool_calls: None,
+                            tool_call_id: Some(tc.id.clone()),
+                            extra_content: None,
+                            extra: std::collections::HashMap::new(),
+                        });
+                    }
+                }
+
+                // If assistant produced text content (final response), emit it
+                if !h.content.is_empty() {
+                    messages.push(OpenAiMessage {
+                        role: "assistant".to_string(),
+                        content: Some(h.content.clone()),
+                        tool_calls: None,
+                        tool_call_id: None,
+                        extra_content: None,
+                        extra: std::collections::HashMap::new(),
+                    });
+                }
+            }
+            ChatRole::System => messages.push(OpenAiMessage {
+                role: "system".to_string(),
+                content: Some(h.content.clone()),
+                tool_calls: None,
+                tool_call_id: None,
+                extra_content: None,
+                extra: std::collections::HashMap::new(),
+            }),
+            ChatRole::Tool => {}
+        }
+    }
+
+    messages.push(OpenAiMessage {
+        role: "user".to_string(),
+        content: Some(user_message.to_string()),
+        tool_calls: None,
+        tool_call_id: None,
+        extra_content: None,
+        extra: std::collections::HashMap::new(),
+    });
+
+    messages
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
     system_prompt: &str,
@@ -434,60 +542,10 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
     }
 
     let endpoint_url = resolve_endpoint_url(model, api_url);
+    let is_gemini =
+        endpoint_url.contains("generativelanguage.googleapis.com") || model.starts_with("gemini-");
 
-    let mut messages: Vec<OpenAiMessage> = Vec::new();
-    messages.push(OpenAiMessage {
-        role: "system".to_string(),
-        content: Some(system_prompt.to_string()),
-        tool_calls: None,
-        tool_call_id: None,
-        extra_content: None,
-        extra: std::collections::HashMap::new(),
-    });
-
-    for h in history {
-        match h.role {
-            ChatRole::User => messages.push(OpenAiMessage {
-                role: "user".to_string(),
-                content: Some(h.content.clone()),
-                tool_calls: None,
-                tool_call_id: None,
-                extra_content: None,
-                extra: std::collections::HashMap::new(),
-            }),
-            ChatRole::Assistant => {
-                // In conversation history, the assistant's previous turns are already answered
-                // and finalized in `h.content`. We do not send unfulfilled/orphan tool_calls
-                // without tool responses into the LLM context.
-                messages.push(OpenAiMessage {
-                    role: "assistant".to_string(),
-                    content: Some(h.content.clone()),
-                    tool_calls: None,
-                    tool_call_id: None,
-                    extra_content: None,
-                    extra: std::collections::HashMap::new(),
-                });
-            }
-            ChatRole::System => messages.push(OpenAiMessage {
-                role: "system".to_string(),
-                content: Some(h.content.clone()),
-                tool_calls: None,
-                tool_call_id: None,
-                extra_content: None,
-                extra: std::collections::HashMap::new(),
-            }),
-            ChatRole::Tool => {}
-        }
-    }
-
-    messages.push(OpenAiMessage {
-        role: "user".to_string(),
-        content: Some(user_message.to_string()),
-        tool_calls: None,
-        tool_call_id: None,
-        extra_content: None,
-        extra: std::collections::HashMap::new(),
-    });
+    let mut messages = build_initial_messages(system_prompt, history, user_message, is_gemini);
 
     let open_ai_tools: Vec<OpenAiTool> = tools
         .iter()
@@ -840,58 +898,11 @@ pub async fn execute_agent_chat_stream<D: ToolDispatcher>(
         endpoint_url.contains("generativelanguage.googleapis.com") || model.starts_with("gemini-");
 
     let history = {
-        let guard = messages_arc.lock().unwrap();
+        let guard = messages_arc.lock().unwrap_or_else(PoisonError::into_inner);
         guard.clone()
     };
 
-    let mut messages: Vec<OpenAiMessage> = Vec::new();
-    messages.push(OpenAiMessage {
-        role: "system".to_string(),
-        content: Some(system_prompt.to_string()),
-        tool_calls: None,
-        tool_call_id: None,
-        extra_content: None,
-        extra: std::collections::HashMap::new(),
-    });
-
-    for h in &history {
-        match h.role {
-            ChatRole::User => messages.push(OpenAiMessage {
-                role: "user".to_string(),
-                content: Some(h.content.clone()),
-                tool_calls: None,
-                tool_call_id: None,
-                extra_content: None,
-                extra: std::collections::HashMap::new(),
-            }),
-            ChatRole::Assistant => messages.push(OpenAiMessage {
-                role: "assistant".to_string(),
-                content: Some(h.content.clone()),
-                tool_calls: None,
-                tool_call_id: None,
-                extra_content: None,
-                extra: std::collections::HashMap::new(),
-            }),
-            ChatRole::System => messages.push(OpenAiMessage {
-                role: "system".to_string(),
-                content: Some(h.content.clone()),
-                tool_calls: None,
-                tool_call_id: None,
-                extra_content: None,
-                extra: std::collections::HashMap::new(),
-            }),
-            ChatRole::Tool => {}
-        }
-    }
-
-    messages.push(OpenAiMessage {
-        role: "user".to_string(),
-        content: Some(user_message.clone()),
-        tool_calls: None,
-        tool_call_id: None,
-        extra_content: None,
-        extra: std::collections::HashMap::new(),
-    });
+    let mut messages = build_initial_messages(system_prompt, &history, &user_message, is_gemini);
 
     let open_ai_tools: Vec<OpenAiTool> = tools
         .iter()
@@ -1290,7 +1301,7 @@ pub async fn execute_agent_chat_stream<D: ToolDispatcher>(
     }
 
     let now = chrono::Utc::now().to_rfc3339();
-    let mut guard = messages_arc.lock().unwrap();
+    let mut guard = messages_arc.lock().unwrap_or_else(PoisonError::into_inner);
     guard.push(ChatMessage {
         role: ChatRole::User,
         content: user_message,
@@ -1466,5 +1477,114 @@ mod tests {
         assert_eq!(streamed_tools[0].id, "call_abc");
         assert_eq!(streamed_tools[0].name, "search_products");
         assert_eq!(streamed_tools[0].arguments, "{\"query\":\"shoes\"}");
+    }
+
+    #[test]
+    fn test_build_initial_messages_preserves_tool_calls_and_results() {
+        let history = vec![
+            ChatMessage {
+                role: ChatRole::User,
+                content: "i want to buy airpods".to_string(),
+                tool_calls: None,
+                timestamp: "2026-11-16T12:00:00Z".to_string(),
+                r#type: Some(ChatMessageType::Ok),
+            },
+            ChatMessage {
+                role: ChatRole::Assistant,
+                content: "I found Apple AirPods Pro (2nd Gen) for $249.00.".to_string(),
+                tool_calls: Some(vec![ToolCallRecord {
+                    id: "call_search_1".to_string(),
+                    tool_name: "search_products".to_string(),
+                    arguments: r#"{"query":"airpods"}"#.to_string(),
+                    result:
+                        r#"[{"product_id":"ap003","name":"AirPods Pro (2nd Gen)","brand":"Apple"}]"#
+                            .to_string(),
+                }]),
+                timestamp: "2026-11-16T12:00:05Z".to_string(),
+                r#type: Some(ChatMessageType::Ok),
+            },
+        ];
+
+        let messages = build_initial_messages(
+            "System prompt",
+            &history,
+            "add it to cart",
+            true, // is_gemini
+        );
+
+        // Sequence must be:
+        // 0: system
+        // 1: user ("i want to buy airpods")
+        // 2: assistant (with tool_calls: [search_products])
+        // 3: tool (with result containing ap003)
+        // 4: assistant ("I found Apple AirPods Pro...")
+        // 5: user ("add it to cart")
+        assert_eq!(messages.len(), 6);
+        assert_eq!(messages[0].role, "system");
+        assert_eq!(messages[1].role, "user");
+        assert_eq!(
+            messages[1].content.as_deref(),
+            Some("i want to buy airpods")
+        );
+
+        assert_eq!(messages[2].role, "assistant");
+        let tcs = messages[2].tool_calls.as_ref().expect("tool_calls present");
+        assert_eq!(tcs.len(), 1);
+        assert_eq!(tcs[0].id, "call_search_1");
+        assert_eq!(tcs[0].function.name, "search_products");
+        // Verify Gemini thought signature was ensured
+        assert!(
+            tcs[0].extra_content.is_some()
+                || tcs[0].extra.contains_key("thought_signature")
+                || tcs[0].function.extra.contains_key("thought_signature")
+        );
+
+        assert_eq!(messages[3].role, "tool");
+        assert_eq!(messages[3].tool_call_id.as_deref(), Some("call_search_1"));
+        assert!(messages[3].content.as_ref().unwrap().contains("ap003"));
+
+        assert_eq!(messages[4].role, "assistant");
+        assert_eq!(
+            messages[4].content.as_deref(),
+            Some("I found Apple AirPods Pro (2nd Gen) for $249.00.")
+        );
+        assert!(messages[4].tool_calls.is_none());
+
+        assert_eq!(messages[5].role, "user");
+        assert_eq!(messages[5].content.as_deref(), Some("add it to cart"));
+    }
+
+    #[test]
+    fn test_build_initial_messages_plain_history_without_tools() {
+        let history = vec![
+            ChatMessage {
+                role: ChatRole::User,
+                content: "hello".to_string(),
+                tool_calls: None,
+                timestamp: "2026-11-16T12:00:00Z".to_string(),
+                r#type: Some(ChatMessageType::Ok),
+            },
+            ChatMessage {
+                role: ChatRole::Assistant,
+                content: "Hi! How can I help you today?".to_string(),
+                tool_calls: None,
+                timestamp: "2026-11-16T12:00:02Z".to_string(),
+                r#type: Some(ChatMessageType::Ok),
+            },
+        ];
+
+        let messages = build_initial_messages("System prompt", &history, "show me shoes", false);
+
+        assert_eq!(messages.len(), 4);
+        assert_eq!(messages[0].role, "system");
+        assert_eq!(messages[1].role, "user");
+        assert_eq!(messages[2].role, "assistant");
+        assert_eq!(
+            messages[2].content.as_deref(),
+            Some("Hi! How can I help you today?")
+        );
+        assert!(messages[2].tool_calls.is_none());
+        assert_eq!(messages[3].role, "user");
+        assert_eq!(messages[3].content.as_deref(), Some("show me shoes"));
     }
 }

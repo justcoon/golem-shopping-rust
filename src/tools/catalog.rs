@@ -15,7 +15,7 @@ pub struct SearchProductsInput {
 /// Get detailed product specifications, price, and inventory by product ID
 #[derive(Schema, Clone, Serialize, Deserialize, JsonSchema, Debug)]
 pub struct GetProductDetailsInput {
-    /// Unique product identifier, e.g. 'ap001'
+    /// Unique product identifier from catalog search
     #[serde(rename = "productId", alias = "product_id")]
     pub product_id: String,
     /// Optional currency code, e.g. USD, EUR

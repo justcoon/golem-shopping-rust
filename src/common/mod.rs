@@ -38,9 +38,11 @@ pub(crate) mod snapshot {
     where
         T: de::Deserialize<'a>,
     {
-        let (version, data) = bytes.split_at(1);
+        let (&version, data) = bytes
+            .split_first()
+            .ok_or_else(|| "Empty snapshot data".to_string())?;
 
-        match version[0] {
+        match version {
             SERIALIZATION_VERSION_V1 => {
                 let value: T = serde_json::from_slice(data).map_err(|err| err.to_string())?;
 

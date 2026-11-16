@@ -165,8 +165,8 @@ fn get_order_agent_id(agent_name: &str) -> Option<String> {
     Regex::new(r#"OrderAgent\("([^)]+)"\)"#)
         .ok()?
         .captures(agent_name)
-        .filter(|caps| caps.len() > 0)
-        .map(|caps| caps[1].to_string())
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str().to_string())
 }
 
 async fn fetch_orders(agent_ids: HashSet<String>) -> Result<Vec<Order>, String> {
