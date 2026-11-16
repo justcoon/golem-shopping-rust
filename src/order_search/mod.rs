@@ -1,3 +1,4 @@
+use crate::common::query::{ParsedQuery, text_exact_matches, text_matches, tokenize_query};
 use crate::order::{Order, OrderAgentClient, OrderStatus};
 use futures::future::join_all;
 use golem_rust::{
@@ -9,71 +10,23 @@ use std::collections::HashSet;
 
 #[derive(Clone, Debug)]
 pub struct OrderQueryMatcher {
-    terms: Vec<String>,
-    field_filters: Vec<(String, String)>,
+    parsed: ParsedQuery,
 }
 
 impl OrderQueryMatcher {
     pub fn new(query: &str) -> Self {
-        let mut terms = Vec::new();
-        let mut field_filters = Vec::new();
-
-        let tokens = Self::tokenize(query);
-
-        for part in tokens {
-            if let Some((field, value)) = part.split_once(':') {
-                field_filters.push((field.to_string(), value.to_string()));
-            } else {
-                terms.push(part.to_string());
-            }
-        }
-
         Self {
-            terms,
-            field_filters,
+            parsed: ParsedQuery::parse(query),
         }
     }
 
     pub fn tokenize(query: &str) -> Vec<String> {
-        let mut tokens = Vec::new();
-        let mut current = String::new();
-        let mut in_quotes = false;
-
-        for c in query.chars() {
-            match c {
-                ' ' if !in_quotes => {
-                    if !current.is_empty() {
-                        tokens.push(current.trim().to_string());
-                        current.clear();
-                    }
-                }
-                '"' => {
-                    in_quotes = !in_quotes;
-                }
-                _ => {
-                    current.push(c);
-                }
-            }
-        }
-
-        if !current.is_empty() {
-            tokens.push(current.trim().to_string());
-        }
-
-        tokens
+        tokenize_query(query)
     }
 
     pub fn matches(&self, order: &Order) -> bool {
-        fn text_matches(text: &str, query: &str) -> bool {
-            query == "*" || text.to_lowercase().contains(&query.to_lowercase())
-        }
-
-        fn text_exact_matches(text: &str, query: &str) -> bool {
-            query == "*" || text.eq_ignore_ascii_case(query)
-        }
-
         // 1. Check field filters
-        for (field, value) in &self.field_filters {
+        for (field, value) in &self.parsed.field_filters {
             let matches = match field.to_lowercase().as_str() {
                 "order-id" | "orderid" | "id" => text_exact_matches(&order.order_id, value),
                 "user-id" | "userid" => text_exact_matches(&order.user_id, value),
@@ -103,11 +56,11 @@ impl OrderQueryMatcher {
         }
 
         // 2. Check general search terms
-        if self.terms.is_empty() {
+        if self.parsed.terms.is_empty() {
             return true;
         }
 
-        for term in &self.terms {
+        for term in &self.parsed.terms {
             let status_str = match order.order_status {
                 OrderStatus::New => "new",
                 OrderStatus::Shipped => "shipped",

@@ -72,10 +72,7 @@ impl ProductAgent for ProductAgentImpl {
         context: golem_rust::agentic::SnapshotRestoreContext,
     ) -> Result<Self, String> {
         let data: Option<Product> = crate::common::snapshot::deserialize(&bytes)?;
-        let mut parameters = golem_rust::agentic::DirectAgentInput::new(context.parameters)
-            .map_err(|error| error.to_string())?;
-        let id: String = parameters.take().map_err(|error| error.to_string())?;
-        parameters.finish().map_err(|error| error.to_string())?;
+        let id: String = crate::common::snapshot::extract_agent_id(context)?;
 
         Ok(Self {
             _id: id,

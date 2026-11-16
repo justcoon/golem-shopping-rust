@@ -200,66 +200,11 @@ impl From<Cart> for CreateOrder {
     }
 }
 
-#[derive(Schema, Clone)]
-pub struct ItemNotFoundError {
-    pub message: String,
-    pub product_id: String,
-}
-impl ItemNotFoundError {
-    fn new(product_id: String) -> ItemNotFoundError {
-        ItemNotFoundError {
-            message: "Item not found".to_string(),
-            product_id,
-        }
-    }
-}
-#[derive(Schema, Clone)]
-pub struct PricingNotFoundError {
-    pub message: String,
-    pub product_id: String,
-}
-impl PricingNotFoundError {
-    fn new(product_id: String) -> PricingNotFoundError {
-        PricingNotFoundError {
-            message: "Pricing not found".to_string(),
-            product_id,
-        }
-    }
-}
-#[derive(Schema, Clone)]
-pub struct ProductNotFoundError {
-    pub message: String,
-    pub product_id: String,
-}
+pub use crate::common::{
+    AddressNotValidError, BillingAddressNotSetError, EmailNotValidError, EmptyEmailError,
+    EmptyItemsError, ItemNotFoundError, PricingNotFoundError, ProductNotFoundError,
+};
 
-impl ProductNotFoundError {
-    fn new(product_id: String) -> ProductNotFoundError {
-        ProductNotFoundError {
-            message: "Product not found".to_string(),
-            product_id,
-        }
-    }
-}
-#[derive(Schema, Clone)]
-pub struct EmailNotValidError {
-    pub message: String,
-}
-#[derive(Schema, Clone)]
-pub struct EmptyItemsError {
-    pub message: String,
-}
-#[derive(Schema, Clone)]
-pub struct AddressNotValidError {
-    pub message: String,
-}
-#[derive(Schema, Clone)]
-pub struct BillingAddressNotSetError {
-    pub message: String,
-}
-#[derive(Schema, Clone)]
-pub struct EmptyEmailError {
-    pub message: String,
-}
 #[derive(Schema, Clone, Debug)]
 pub struct OrderCreateError {
     pub message: String,
@@ -620,25 +565,37 @@ impl CartAgent for CartAgentImpl {
                 return Some(cart.clone());
             }
 
-            let mut items = Vec::new();
-            for item in cart.items.clone() {
-                let product_id = item.product_id;
-                let quantity = item.quantity;
+            let currency = cart.currency.clone();
+            let pricing_region = PRICING_REGION_DEFAULT.to_string();
 
-                let product_client = ProductAgentClient::get(product_id.clone());
-                let pricing_client = PricingAgentClient::get(product_id.clone());
+            let tasks: Vec<_> = cart
+                .items
+                .iter()
+                .cloned()
+                .map(|item| {
+                    let curr = currency.clone();
+                    let reg = pricing_region.clone();
+                    async move {
+                        let product_client = ProductAgentClient::get(item.product_id.clone());
+                        let pricing_client = PricingAgentClient::get(item.product_id.clone());
 
-                let (product, pricing) = join(
-                    product_client.get_product(),
-                    pricing_client
-                        .get_price(cart.currency.clone(), PRICING_REGION_DEFAULT.to_string()),
-                )
-                .await;
+                        let (product, pricing) = join(
+                            product_client.get_product(),
+                            pricing_client.get_price(curr, reg),
+                        )
+                        .await;
 
-                if let (Some(product), Some(pricing)) = (product, pricing) {
-                    items.push(get_cart_item(product, pricing, quantity));
-                }
-            }
+                        match (product, pricing) {
+                            (Some(product), Some(pricing)) => {
+                                Some(get_cart_item(product, pricing, item.quantity))
+                            }
+                            _ => None,
+                        }
+                    }
+                })
+                .collect();
+
+            let items: Vec<CartItem> = join_all(tasks).await.into_iter().flatten().collect();
             cart.set_items(items);
             Some(cart.clone())
         } else {
@@ -1072,10 +1029,7 @@ impl CartAgent for CartAgentImpl {
         context: golem_rust::agentic::SnapshotRestoreContext,
     ) -> Result<Self, String> {
         let data: Option<Cart> = crate::common::snapshot::deserialize(&bytes)?;
-        let mut parameters = golem_rust::agentic::DirectAgentInput::new(context.parameters)
-            .map_err(|error| error.to_string())?;
-        let id: String = parameters.take().map_err(|error| error.to_string())?;
-        parameters.finish().map_err(|error| error.to_string())?;
+        let id: String = crate::common::snapshot::extract_agent_id(context)?;
 
         Ok(Self {
             _id: id,

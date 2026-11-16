@@ -149,71 +149,11 @@ impl ActionNotAllowedError {
     }
 }
 
-#[derive(Schema, Clone)]
-pub struct ItemNotFoundError {
-    pub message: String,
-    pub product_id: String,
-}
+pub use crate::common::{
+    AddressNotValidError, BillingAddressNotSetError, EmailNotValidError, EmptyEmailError,
+    EmptyItemsError, ItemNotFoundError, PricingNotFoundError, ProductNotFoundError,
+};
 
-impl ItemNotFoundError {
-    fn new(product_id: String) -> ItemNotFoundError {
-        ItemNotFoundError {
-            message: "Item not found".to_string(),
-            product_id,
-        }
-    }
-}
-
-#[derive(Schema, Clone)]
-pub struct PricingNotFoundError {
-    pub message: String,
-    pub product_id: String,
-}
-
-impl PricingNotFoundError {
-    fn new(product_id: String) -> PricingNotFoundError {
-        PricingNotFoundError {
-            message: "Pricing not found".to_string(),
-            product_id,
-        }
-    }
-}
-
-#[derive(Schema, Clone)]
-pub struct ProductNotFoundError {
-    pub message: String,
-    pub product_id: String,
-}
-
-impl ProductNotFoundError {
-    fn new(product_id: String) -> ProductNotFoundError {
-        ProductNotFoundError {
-            message: "Product not found".to_string(),
-            product_id,
-        }
-    }
-}
-
-#[derive(Schema, Clone)]
-pub struct EmailNotValidError {
-    pub message: String,
-}
-#[derive(Schema, Clone)]
-pub struct EmptyItemsError {
-    pub message: String,
-}
-#[derive(Schema, Clone)]
-pub struct AddressNotValidError {
-    pub message: String,
-}
-#[derive(Schema, Clone)]
-pub struct BillingAddressNotSetError {
-    pub message: String,
-}
-#[derive(Schema, Clone)]
-pub struct EmptyEmailError {
-    pub message: String,
-}
 #[derive(Schema, Clone, Serialize, Deserialize, Debug)]
 pub struct InsufficientInventoryError {
     pub message: String,
@@ -799,10 +739,7 @@ impl OrderAgent for OrderAgentImpl {
         context: golem_rust::agentic::SnapshotRestoreContext,
     ) -> Result<Self, String> {
         let data: Option<Order> = crate::common::snapshot::deserialize(&bytes)?;
-        let mut parameters = golem_rust::agentic::DirectAgentInput::new(context.parameters)
-            .map_err(|error| error.to_string())?;
-        let id: String = parameters.take().map_err(|error| error.to_string())?;
-        parameters.finish().map_err(|error| error.to_string())?;
+        let id: String = crate::common::snapshot::extract_agent_id(context)?;
 
         Ok(Self {
             _id: id,

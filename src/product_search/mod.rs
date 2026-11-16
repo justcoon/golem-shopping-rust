@@ -1,3 +1,4 @@
+use crate::common::query::{ParsedQuery, text_exact_matches, text_matches, tokenize_query};
 use crate::common::{CURRENCY_DEFAULT, INVENTORY_REGION_DEFAULT, PRICING_REGION_DEFAULT};
 use crate::inventory::InventoryAgentClient;
 use crate::pricing::{PricingAgentClient, PricingItem};
@@ -27,74 +28,25 @@ pub struct ProductWithPrice {
 
 #[derive(Clone, Debug)]
 struct ProductQueryMatcher {
-    terms: Vec<String>,
-    field_filters: Vec<(String, String)>,
+    parsed: ParsedQuery,
 }
 
 impl ProductQueryMatcher {
-    // Parse a simple query string into terms and field filters
     fn new(query: &str) -> Self {
-        let mut terms = Vec::new();
-        let mut field_filters = Vec::new();
-
-        let tokens = Self::tokenize(query);
-
-        for part in tokens {
-            if let Some((field, value)) = part.split_once(':') {
-                field_filters.push((field.to_string(), value.to_string()));
-            } else {
-                terms.push(part.to_string());
-            }
-        }
-
         Self {
-            terms,
-            field_filters,
+            parsed: ParsedQuery::parse(query),
         }
     }
 
-    // Tokenize the query string, handling quoted strings
+    #[allow(dead_code)]
     fn tokenize(query: &str) -> Vec<String> {
-        let mut tokens = Vec::new();
-        let mut current = String::new();
-        let mut in_quotes = false;
-
-        for c in query.chars() {
-            match c {
-                ' ' if !in_quotes => {
-                    if !current.is_empty() {
-                        tokens.push(current.trim().to_string());
-                        current.clear();
-                    }
-                }
-                '"' => {
-                    in_quotes = !in_quotes;
-                }
-                _ => {
-                    current.push(c);
-                }
-            }
-        }
-
-        if !current.is_empty() {
-            tokens.push(current.trim().to_string());
-        }
-
-        tokens
+        tokenize_query(query)
     }
 
     // Check if a product matches the query
     fn matches(&self, product: Product) -> bool {
-        fn text_matches(text: &str, query: &str) -> bool {
-            query == "*" || text.to_lowercase().contains(&query.to_lowercase())
-        }
-
-        fn text_exact_matches(text: &str, query: &str) -> bool {
-            query == "*" || text == query
-        }
-
         // Check field filters first
-        for (field, value) in self.field_filters.iter() {
+        for (field, value) in self.parsed.field_filters.iter() {
             let matches = match field.to_lowercase().as_str() {
                 "product-id" | "productid" => text_exact_matches(&product.product_id, value),
                 "name" => text_matches(&product.name, value),
@@ -110,12 +62,12 @@ impl ProductQueryMatcher {
         }
 
         // If no terms to match, just check if field filters passed
-        if self.terms.is_empty() {
+        if self.parsed.terms.is_empty() {
             return true;
         }
 
         // Check search terms against all searchable fields
-        for term in self.terms.iter() {
+        for term in self.parsed.terms.iter() {
             let matches = text_matches(&product.name, term)
                 || text_matches(&product.brand, term)
                 || text_matches(&product.description, term)
