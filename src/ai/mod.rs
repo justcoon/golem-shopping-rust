@@ -1,8 +1,10 @@
 pub mod agent_loop;
+pub mod chat_state;
 pub mod schema;
 pub mod tools;
 
 pub use agent_loop::*;
+pub use chat_state::*;
 pub use schema::*;
 pub use tools::*;
 

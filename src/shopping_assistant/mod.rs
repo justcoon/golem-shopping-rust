@@ -1,27 +1,11 @@
 pub mod tools;
 
-use crate::ai::{
-    AgentConfig, ChatChunk, ChatMessage, ChatResponse, ChatTurnResult, execute_agent_chat_stream,
-    process_chat_turn,
-};
-use golem_rust::agentic::{AgentStream, Config, spawn_local};
+use crate::ai::{AgentConfig, ChatAgentState, ChatChunk, ChatMessage, ChatResponse};
+use golem_rust::agentic::{AgentStream, Config};
 use golem_rust::{agent_definition, agent_implementation, endpoint, read_only};
-use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex, PoisonError};
 use tools::*;
 
-#[derive(Serialize, Deserialize)]
-struct ShoppingAssistantSnapshot {
-    messages: Vec<ChatMessage>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct LegacyShoppingAssistantSnapshot {
-    #[serde(default)]
-    recommended_items: Option<serde_json::Value>,
-    #[serde(default)]
-    messages: Vec<ChatMessage>,
-}
+pub const SHOPPING_ASSISTANT_NO_KEY_MSG: &str = "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.";
 
 #[agent_definition(mount = "/v1/assistant/{id}")]
 pub trait ShoppingAssistantAgent {
@@ -44,31 +28,7 @@ pub trait ShoppingAssistantAgent {
 pub struct ShoppingAssistantAgentImpl {
     _id: String,
     config: Config<AgentConfig>,
-    messages: Arc<Mutex<Vec<ChatMessage>>>,
-}
-
-impl ShoppingAssistantAgentImpl {
-    async fn execute_turn(&mut self, message: String) -> ChatTurnResult {
-        let tools = build_shopping_assistant_tools(self._id.clone());
-        let mut messages = {
-            self.messages
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone()
-        };
-        let result = process_chat_turn(
-            &self.config,
-            &mut messages,
-            message,
-            SHOPPING_ASSISTANT_SYSTEM_PROMPT,
-            &tools.specs(),
-            "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
-            &tools,
-        )
-        .await;
-        *self.messages.lock().unwrap_or_else(PoisonError::into_inner) = messages;
-        result
-    }
+    state: ChatAgentState,
 }
 
 #[agent_implementation]
@@ -77,92 +37,58 @@ impl ShoppingAssistantAgent for ShoppingAssistantAgentImpl {
         ShoppingAssistantAgentImpl {
             _id: id,
             config,
-            messages: Arc::new(Mutex::new(Vec::new())),
+            state: ChatAgentState::new(),
         }
     }
 
     async fn chat(&mut self, message: String) -> ChatResponse {
-        self.execute_turn(message).await.to_response()
+        let tools = build_shopping_assistant_tools(self._id.clone());
+        self.state
+            .execute_turn(
+                &self.config,
+                message,
+                SHOPPING_ASSISTANT_SYSTEM_PROMPT,
+                SHOPPING_ASSISTANT_NO_KEY_MSG,
+                &tools,
+            )
+            .await
+            .to_response()
     }
 
     async fn chat_stream(&mut self, message: String) -> AgentStream<ChatChunk> {
-        let (writer, stream) = AgentStream::new();
-        let messages = self.messages.clone();
-        let (api_key, model, api_url) = match self.config.get() {
-            Ok(cfg) => (
-                cfg.llm.api_key.get().unwrap_or_default(),
-                cfg.llm.model.get().unwrap_or_default(),
-                cfg.llm.api_url.get().ok(),
-            ),
-            Err(_) => (String::new(), String::new(), None),
-        };
         let user_id = self._id.clone();
-        spawn_local(async move {
-            let tools = build_shopping_assistant_tools(user_id);
-            execute_agent_chat_stream(
-                api_key,
-                model,
-                api_url,
-                messages,
-                message,
-                SHOPPING_ASSISTANT_SYSTEM_PROMPT,
-                &tools.specs(),
-                "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
-                &tools,
-                writer,
-            )
-            .await;
-        });
-        stream
+        self.state.execute_stream(
+            &self.config,
+            message,
+            SHOPPING_ASSISTANT_SYSTEM_PROMPT,
+            SHOPPING_ASSISTANT_NO_KEY_MSG,
+            move || build_shopping_assistant_tools(user_id),
+        )
     }
 
     fn get_history(&self) -> Vec<ChatMessage> {
-        self.messages
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        self.state.get_history()
     }
 
     fn clear_history(&mut self) {
-        self.messages
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear();
+        self.state.clear_history();
     }
 
     async fn load_snapshot(
         bytes: Vec<u8>,
         context: golem_rust::agentic::SnapshotRestoreContext,
     ) -> Result<Self, String> {
-        let messages = if let Ok(snapshot) =
-            crate::common::snapshot::deserialize::<ShoppingAssistantSnapshot>(&bytes)
-        {
-            snapshot.messages
-        } else if let Ok(legacy) =
-            crate::common::snapshot::deserialize::<LegacyShoppingAssistantSnapshot>(&bytes)
-        {
-            legacy.messages
-        } else {
-            Vec::new()
-        };
-
+        let state = ChatAgentState::restore_from_snapshot(&bytes);
         let id: String = crate::common::snapshot::extract_agent_id(context)?;
 
         Ok(Self {
             _id: id,
             config: Config::new(),
-            messages: Arc::new(Mutex::new(messages)),
+            state,
         })
     }
 
     async fn save_snapshot(&self) -> Result<Vec<u8>, String> {
-        let snapshot = ShoppingAssistantSnapshot {
-            messages: self
-                .messages
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone(),
-        };
-        crate::common::snapshot::serialize(&snapshot)
+        self.state.save_snapshot()
     }
 }
