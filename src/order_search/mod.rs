@@ -5,7 +5,6 @@ use golem_rust::{
     StringFilterComparator, agent_definition, agent_implementation, endpoint, resolve_component_id,
 };
 use log::info;
-use regex::Regex;
 use std::collections::HashSet;
 
 #[derive(Clone, Debug)]
@@ -162,11 +161,10 @@ fn get_agent_filter() -> AgentAnyFilter {
 }
 
 fn get_order_agent_id(agent_name: &str) -> Option<String> {
-    Regex::new(r#"OrderAgent\("([^)]+)"\)"#)
-        .ok()?
-        .captures(agent_name)
-        .and_then(|caps| caps.get(1))
-        .map(|m| m.as_str().to_string())
+    agent_name
+        .strip_prefix("OrderAgent(\"")?
+        .strip_suffix("\")")
+        .map(str::to_string)
 }
 
 async fn fetch_orders(agent_ids: HashSet<String>) -> Result<Vec<Order>, String> {

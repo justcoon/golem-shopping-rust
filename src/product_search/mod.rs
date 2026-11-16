@@ -9,7 +9,6 @@ use golem_rust::{
     prompt, resolve_component_id,
 };
 use log::info;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -143,11 +142,10 @@ fn get_agent_filter() -> AgentAnyFilter {
 }
 
 fn get_product_agent_id(agent_name: &str) -> Option<String> {
-    Regex::new(r#"ProductAgent\("([^)]+)"\)"#)
-        .ok()?
-        .captures(agent_name)
-        .and_then(|caps| caps.get(1))
-        .map(|m| m.as_str().to_string())
+    agent_name
+        .strip_prefix("ProductAgent(\"")?
+        .strip_suffix("\")")
+        .map(str::to_string)
 }
 
 async fn get_products(

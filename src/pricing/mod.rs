@@ -68,6 +68,13 @@ impl PricingItem {
     }
 }
 
+type SalePricingKey = (
+    String,
+    String,
+    Option<chrono::DateTime<chrono::Utc>>,
+    Option<chrono::DateTime<chrono::Utc>>,
+);
+
 #[derive(Schema, Clone, Serialize, Deserialize)]
 pub struct SalePricingItem {
     pub price: f32,
@@ -78,14 +85,7 @@ pub struct SalePricingItem {
 }
 
 impl SalePricingItem {
-    fn key(
-        &self,
-    ) -> (
-        String,
-        String,
-        Option<chrono::DateTime<chrono::Utc>>,
-        Option<chrono::DateTime<chrono::Utc>>,
-    ) {
+    fn key(&self) -> SalePricingKey {
         (
             self.region.clone(),
             self.currency.clone(),
@@ -164,15 +164,7 @@ fn merge_sale_items(
     } else if current.is_empty() {
         updates
     } else {
-        let mut merge_map: HashMap<
-            (
-                String,
-                String,
-                Option<chrono::DateTime<chrono::Utc>>,
-                Option<chrono::DateTime<chrono::Utc>>,
-            ),
-            SalePricingItem,
-        > = HashMap::new();
+        let mut merge_map: HashMap<SalePricingKey, SalePricingItem> = HashMap::new();
 
         for item in updates {
             merge_map.insert(item.key(), item);

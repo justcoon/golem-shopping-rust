@@ -9,7 +9,9 @@ use crate::product::{Product, ProductAgentClient};
 use crate::recommendation::ShoppingRecommendationAgentClient;
 use email_address::EmailAddress;
 use futures::future::{join, join_all};
-use golem_rust::{Schema, agent_definition, agent_implementation, description, endpoint, prompt};
+use golem_rust::{
+    Schema, agent_definition, agent_implementation, description, endpoint, prompt, read_only,
+};
 use log::info;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -557,6 +559,7 @@ pub trait CartAgent {
         phone_number: Option<String>,
     ) -> Result<CartUpdated, UpdateAddressError>;
 
+    #[read_only]
     #[endpoint(get = "/saved-contact")]
     #[prompt(
         "Call this before checkout to check if the user has saved shipping/billing details from previous orders."
@@ -575,6 +578,7 @@ pub trait CartAgent {
     )]
     async fn apply_saved_contact_info(&mut self) -> Result<CartUpdated, UpdateAddressError>;
 
+    #[read_only]
     #[endpoint(get = "/orders?limit={limit}")]
     #[prompt(
         "Call this when the user asks about their previous orders, order history, or recent purchases."
