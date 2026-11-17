@@ -9,9 +9,7 @@ use crate::product::{Product, ProductAgentClient};
 use crate::recommendation::ShoppingRecommendationAgentClient;
 use email_address::EmailAddress;
 use futures::future::{join, join_all};
-use golem_rust::{
-    Schema, agent_definition, agent_implementation, description, endpoint, prompt, read_only,
-};
+use golem_rust::{Schema, agent_definition, agent_implementation, description, endpoint, prompt};
 use log::info;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -357,33 +355,19 @@ where
     }
 }
 
-fn fulfill_inventory_reservations<I, S>(product_ids: I, order_id: &str)
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<str>,
-{
-    for pid in product_ids {
-        let mut client = InventoryAgentClient::get(pid.as_ref().to_string());
-        client.trigger_fulfill_reservation(order_id.to_string());
-    }
-}
-
-fn map_reservation_error(
-    item: &CartItem,
-    err: crate::inventory::ReserveQuantityError,
-) -> PrepareCheckoutError {
-    let (message, requested, available) = match err {
+fn map_reservation_error(err: crate::inventory::ReserveQuantityError) -> PrepareCheckoutError {
+    let (message, product_id, requested, available) = match err {
         crate::inventory::ReserveQuantityError::InsufficientInventory(e) => {
-            (e.message, e.requested, e.available)
+            (e.message, e.product_id, e.requested, e.available)
         }
         crate::inventory::ReserveQuantityError::InventoryNotFound(e) => {
-            (e.message, item.quantity, 0)
+            (e.message, e.product_id, 0, 0)
         }
     };
 
     PrepareCheckoutError::InsufficientStock(InsufficientStockError {
         message,
-        product_id: item.product_id.clone(),
+        product_id,
         requested,
         available,
     })
@@ -404,30 +388,15 @@ async fn reserve_inventory_for_cart(
     order_id: &str,
     expires_at: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), PrepareCheckoutError> {
-    let region = INVENTORY_REGION_DEFAULT.to_string();
-    let mut reserved_products: Vec<String> = Vec::new();
+    let region = INVENTORY_REGION_DEFAULT;
+    let reservation_items: Vec<(String, u32)> = items
+        .iter()
+        .map(|item| (item.product_id.clone(), item.quantity))
+        .collect();
 
-    for item in items {
-        let mut inv_client = InventoryAgentClient::get(item.product_id.clone());
-        let res = inv_client
-            .reserve_quantity(
-                order_id.to_string(),
-                region.clone(),
-                item.quantity,
-                Some(expires_at),
-            )
-            .await;
-
-        match res {
-            Ok(_) => reserved_products.push(item.product_id.clone()),
-            Err(err) => {
-                release_inventory_reservations(&reserved_products, order_id);
-                return Err(map_reservation_error(item, err));
-            }
-        }
-    }
-
-    Ok(())
+    crate::inventory::reserve_inventory_saga(&reservation_items, order_id, region, Some(expires_at))
+        .await
+        .map_err(map_reservation_error)
 }
 
 fn get_cart_item(product: Product, pricing: PricingItem, quantity: u32) -> CartItem {
@@ -504,7 +473,6 @@ pub trait CartAgent {
         phone_number: Option<String>,
     ) -> Result<CartUpdated, UpdateAddressError>;
 
-    #[read_only]
     #[endpoint(get = "/saved-contact")]
     #[prompt(
         "Call this before checkout to check if the user has saved shipping/billing details from previous orders."
@@ -523,7 +491,6 @@ pub trait CartAgent {
     )]
     async fn apply_saved_contact_info(&mut self) -> Result<CartUpdated, UpdateAddressError>;
 
-    #[read_only]
     #[endpoint(get = "/orders?limit={limit}")]
     #[prompt(
         "Call this when the user asks about their previous orders, order history, or recent purchases."
@@ -720,8 +687,6 @@ impl CartAgent for CartAgentImpl {
             .initialize_order(order)
             .await
             .map_err(map_init_order_error)?;
-
-        fulfill_inventory_reservations(state.items.iter().map(|i| &i.product_id), &order_id);
 
         let user_id = state.user_id.clone();
         state.order_created(order_id.clone());

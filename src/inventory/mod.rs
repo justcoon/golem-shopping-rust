@@ -3,6 +3,9 @@ use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub mod saga;
+pub use saga::reserve_inventory_saga;
+
 #[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct InventoryItem {
     pub region: String,

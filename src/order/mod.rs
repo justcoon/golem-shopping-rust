@@ -328,49 +328,34 @@ impl OrderAgent for OrderAgentImpl {
         }
 
         let order_id = state.order_id.clone();
-        let region = INVENTORY_REGION_DEFAULT.to_string();
+        let region = INVENTORY_REGION_DEFAULT;
 
-        let mut reserved_products: Vec<String> = Vec::new();
+        let reservation_items: Vec<(String, u32)> = data
+            .items
+            .iter()
+            .map(|item| (item.product_id.clone(), item.quantity))
+            .collect();
 
-        for item in &data.items {
-            let mut inv_client = InventoryAgentClient::get(item.product_id.clone());
-            let res = inv_client
-                .reserve_quantity(order_id.clone(), region.clone(), item.quantity, None)
-                .await;
-
-            match res {
-                Ok(_) => {
-                    reserved_products.push(item.product_id.clone());
+        crate::inventory::reserve_inventory_saga(&reservation_items, &order_id, region, None)
+            .await
+            .map_err(|err| match err {
+                crate::inventory::ReserveQuantityError::InsufficientInventory(e) => {
+                    InitOrderError::InsufficientInventory(InsufficientInventoryError {
+                        message: e.message,
+                        product_id: e.product_id,
+                        requested: e.requested,
+                        available: e.available,
+                    })
                 }
-                Err(err) => {
-                    for prev_pid in reserved_products {
-                        InventoryAgentClient::get(prev_pid)
-                            .trigger_release_reservation(order_id.clone());
-                    }
-
-                    let (requested, available) = match err {
-                        crate::inventory::ReserveQuantityError::InsufficientInventory(e) => {
-                            (e.requested, e.available)
-                        }
-                        crate::inventory::ReserveQuantityError::InventoryNotFound(_) => {
-                            (item.quantity, 0)
-                        }
-                    };
-
-                    return Err(InitOrderError::InsufficientInventory(
-                        InsufficientInventoryError {
-                            message: format!(
-                                "Insufficient inventory for product {} in region {}",
-                                item.product_id, region
-                            ),
-                            product_id: item.product_id.clone(),
-                            requested,
-                            available,
-                        },
-                    ));
+                crate::inventory::ReserveQuantityError::InventoryNotFound(e) => {
+                    InitOrderError::InsufficientInventory(InsufficientInventoryError {
+                        message: e.message,
+                        product_id: e.product_id,
+                        requested: 0,
+                        available: 0,
+                    })
                 }
-            }
-        }
+            })?;
 
         state.user_id = data.user_id;
         state.email = data.email;
