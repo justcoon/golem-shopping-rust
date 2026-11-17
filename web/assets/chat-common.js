@@ -134,6 +134,9 @@ export function renderMarkdown(md) {
       const popped = listStack.pop();
       if (popped) {
         processed.push(`</${popped.type}>`);
+        if (listStack.length === 0) {
+          processed.push("");
+        }
       }
     }
   }
@@ -161,28 +164,45 @@ export function renderMarkdown(md) {
     } else if (ulMatch || olMatch) {
       if (inBq) {
         processed.push("</blockquote>");
+        processed.push("");
         inBq = false;
       }
-      const rawIndent = (ulMatch || olMatch)[1];
-      const indent = rawIndent.replace(/\t/g, "  ").length;
+
+      const indent = (ulMatch ? ulMatch[1] : olMatch[1]).length;
+      const content = ulMatch ? ulMatch[2] : olMatch[2];
       const type = ulMatch ? "ul" : "ol";
-      const content = (ulMatch || olMatch)[2];
 
       if (listStack.length === 0) {
-        processed.push("");
+        if (processed.length > 0 && processed[processed.length - 1] !== "") {
+          processed.push("");
+        }
         processed.push(`<${type} class="md-${type}">`);
         processed.push(`  <li class="md-li">${content}`);
         listStack.push({ type, indent, hasOpenLi: true });
       } else {
-        const top = listStack[listStack.length - 1];
-        if (indent > top.indent) {
+        const currentTop = listStack[listStack.length - 1];
+        if (indent > currentTop.indent) {
+          // Open nested list
           processed.push(`<${type} class="md-${type}">`);
           processed.push(`  <li class="md-li">${content}`);
           listStack.push({ type, indent, hasOpenLi: true });
+        } else if (indent === currentTop.indent) {
+          if (currentTop.type === type) {
+            closeTopLi();
+            processed.push(`  <li class="md-li">${content}`);
+            currentTop.hasOpenLi = true;
+          } else {
+            closeList();
+            processed.push(`<${type} class="md-${type}">`);
+            processed.push(`  <li class="md-li">${content}`);
+            listStack.push({ type, indent, hasOpenLi: true });
+          }
         } else {
-          while (listStack.length > 0 && indent < listStack[listStack.length - 1].indent) {
+          // Unwind to matching or lower indent
+          while (listStack.length > 0 && listStack[listStack.length - 1].indent > indent) {
             closeList();
           }
+
           if (listStack.length === 0) {
             processed.push(`<${type} class="md-${type}">`);
             processed.push(`  <li class="md-li">${content}`);
@@ -254,136 +274,148 @@ export function renderMarkdown(md) {
 }
 
 /**
- * Normalizes a message role to lowercase ("user", "assistant", "system", etc.).
- * Handles both case-insensitive strings ("User", "Assistant") and object tags.
- * @param {any} role
+ * Normalizes raw Golem SSE event data into typed chat stream events.
+ * Handles array batches, WIT variant keying ({ tool_start: {...} }),
+ * kebab-case keys ({ "tool-start": {...} }), PascalCase ({ "ToolStart": {...} }),
+ * and Effect TaggedStruct ({ _tag: "tool_start", ... }).
+ *
+ * @param {string} rawData
+ * @returns {Array<{ tag: string, payload: any }>}
+ */
+export function parseStreamEvents(rawData) {
+  if (!rawData) return [];
+  try {
+    const parsed = JSON.parse(rawData);
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    /** @type {Array<{ tag: string, payload: any }>} */
+    const events = [];
+
+    for (const item of items) {
+      if (typeof item === "string") {
+        const lower = item.toLowerCase().trim();
+        if (lower === "done" || lower === '"done"') {
+          events.push({ tag: "done", payload: { content: "" } });
+        }
+        continue;
+      }
+
+      if (!item || typeof item !== "object") continue;
+
+      let tag = item._tag;
+      let payload = item;
+
+      if (!tag) {
+        const keys = Object.keys(item);
+        if (keys.length === 1) {
+          const key = keys[0];
+          tag = key
+            .replace(/([a-z])([A-Z])/g, "$1_$2")
+            .replace(/-/g, "_")
+            .toLowerCase();
+          payload = item[key] || {};
+        }
+      } else {
+        tag = String(tag)
+          .replace(/([a-z])([A-Z])/g, "$1_$2")
+          .replace(/-/g, "_")
+          .toLowerCase();
+      }
+
+      if (tag) {
+        events.push({ tag, payload });
+      }
+    }
+
+    return events;
+  } catch (err) {
+    console.warn("Failed to parse stream event:", err);
+    return [];
+  }
+}
+
+/**
+ * Extracts a normalized tool name from a tool call object.
+ * @param {any} toolCall
  * @returns {string}
  */
-export function normalizeRole(role) {
-  if (!role) return "";
-  if (typeof role === "object") {
-    const keys = Object.keys(role);
-    if (keys.length > 0) return String(keys[0]).toLowerCase().trim();
-  }
-  return String(role).toLowerCase().trim();
+export function getToolName(toolCall) {
+  return toolCall?.toolName || toolCall?.tool_name || "tool";
 }
 
 /**
- * Normalizes tool call objects across Effect and Rust formats.
- * @param {any} tc
- * @returns {{ id: string, toolName: string, result: any, input: any } | null}
+ * Creates a running tool card element with a spinner.
+ * @param {any} toolCall
+ * @returns {any}
  */
-export function normalizeToolCall(tc) {
-  if (!tc) return null;
-  return {
-    id: tc.id || "",
-    toolName: tc.toolName || tc.tool_name || "tool",
-    result: tc.result !== undefined ? tc.result : "",
-    input: tc.input || tc.arguments || "",
-  };
+export function createRunningToolCard(toolCall) {
+  const card =
+    typeof document !== "undefined"
+      ? document.createElement("div")
+      : { className: "", innerHTML: "" };
+  card.className = "tool-card running";
+  card.innerHTML = `
+    <span class="tool-spinner"></span>
+    <span>Executing <strong>${escapeHtml(getToolName(toolCall))}</strong>...</span>
+  `;
+  return card;
 }
 
 /**
- * Normalizes SSE stream chunks across Effect and Rust formats.
- * Handles:
- * - Effect: { _tag: "text_delta", content / delta, toolCall, ... }
- * - Rust enum external tag: { "TextDelta": { "content": "..." } }, { "ToolStart": { "tool_call": ... } }, etc.
- * - String chunks: "Done", etc.
- * @param {any} raw
- * @returns {{ tag: string, delta?: string, toolCall?: ReturnType<typeof normalizeToolCall>, error?: string, raw: any } | null}
+ * Updates a running tool card element to completed or failed state.
+ * @param {any} card
+ * @param {any} toolCall
  */
-export function normalizeChunk(raw) {
-  if (!raw) return null;
-
-  if (typeof raw === "string") {
-    const lower = raw.toLowerCase().trim();
-    if (lower === "done" || lower === '"done"') return { tag: "done", raw };
-    return { tag: "unknown", raw };
+export function updateCompletedToolCard(card, toolCall) {
+  let summary = "Completed";
+  try {
+    const resObj =
+      typeof toolCall.result === "string" ? JSON.parse(toolCall.result) : toolCall.result;
+    if (Array.isArray(resObj)) {
+      summary = `${resObj.length} item${resObj.length === 1 ? "" : "s"}`;
+    } else {
+      summary = resObj?.summary || (resObj?.error ? `Failed: ${resObj.error}` : "Done");
+    }
+  } catch {
+    summary = toolCall?.result ? String(toolCall.result) : "Done";
   }
-
-  // Effect-style: { _tag: "text_delta", delta: "...", ... }
-  if (raw._tag) {
-    const tag = String(raw._tag).toLowerCase();
-    return {
-      tag,
-      delta: raw.delta || raw.content || "",
-      toolCall: normalizeToolCall(raw.toolCall || raw.tool_call),
-      error: raw.error || "",
-      raw,
-    };
-  }
-
-  // Rust enum external tagging style: { "TextDelta": { "content": "..." } }
-  const textObj = raw.TextDelta || raw.textDelta || raw.text_delta;
-  if (textObj !== undefined) {
-    return {
-      tag: "text_delta",
-      delta: typeof textObj === "string" ? textObj : textObj.content || textObj.delta || "",
-      raw,
-    };
-  }
-
-  const startObj = raw.ToolStart || raw.toolStart || raw.tool_start;
-  if (startObj !== undefined) {
-    return {
-      tag: "tool_start",
-      toolCall: normalizeToolCall(startObj.tool_call || startObj.toolCall || startObj),
-      raw,
-    };
-  }
-
-  const resultObj = raw.ToolResult || raw.toolResult || raw.tool_result;
-  if (resultObj !== undefined) {
-    return {
-      tag: "tool_result",
-      toolCall: normalizeToolCall(resultObj.tool_call || resultObj.toolCall || resultObj),
-      raw,
-    };
-  }
-
-  if (raw.Done !== undefined || raw.done !== undefined) {
-    return { tag: "done", raw };
-  }
-
-  const errObj = raw.Error || raw.error;
-  if (errObj !== undefined) {
-    return {
-      tag: "error",
-      error:
-        typeof errObj === "string"
-          ? errObj
-          : errObj.content || errObj.error || JSON.stringify(errObj),
-      raw,
-    };
-  }
-
-  // Generic tag / type field fallback
-  const tagStr = String(raw.tag || raw.type || "").toLowerCase();
-  if (tagStr.includes("text")) {
-    return { tag: "text_delta", delta: raw.content || raw.delta || "", raw };
-  }
-  if (tagStr.includes("start")) {
-    return {
-      tag: "tool_start",
-      toolCall: normalizeToolCall(raw.toolCall || raw.tool_call),
-      raw,
-    };
-  }
-  if (tagStr.includes("result")) {
-    return {
-      tag: "tool_result",
-      toolCall: normalizeToolCall(raw.toolCall || raw.tool_call),
-      raw,
-    };
-  }
-  if (tagStr.includes("done")) {
-    return { tag: "done", raw };
-  }
-  if (tagStr.includes("error")) {
-    return { tag: "error", error: raw.error || raw.content || "", raw };
-  }
-
-  return { tag: "unknown", raw };
+  const isFailed = summary.toLowerCase().includes("failed");
+  card.className = `tool-card ${isFailed ? "failed" : "completed"}`;
+  card.innerHTML = `
+    <span>${isFailed ? "⚠️" : "✅"}</span>
+    <span><strong>${escapeHtml(getToolName(toolCall))}:</strong> ${escapeHtml(summary)}</span>
+  `;
 }
 
-
+/**
+ * Creates a static completed tool card (for historical messages or sync fallback).
+ * @param {any} toolCall
+ * @returns {any}
+ */
+export function createCompletedToolCard(toolCall) {
+  const card =
+    typeof document !== "undefined"
+      ? document.createElement("div")
+      : { className: "", innerHTML: "" };
+  let summary = "";
+  if (toolCall?.result) {
+    try {
+      const resObj =
+        typeof toolCall.result === "string" ? JSON.parse(toolCall.result) : toolCall.result;
+      if (Array.isArray(resObj)) {
+        summary = `${resObj.length} item${resObj.length === 1 ? "" : "s"}`;
+      } else {
+        summary = resObj?.summary || (resObj?.error ? `Failed: ${resObj.error}` : "");
+      }
+    } catch {
+      summary = "";
+    }
+  }
+  const isFailed =
+    summary.toLowerCase().includes("failed") || summary.toLowerCase().includes("error");
+  card.className = `tool-card ${isFailed ? "failed" : "completed"}`;
+  card.innerHTML = `
+    <span>${isFailed ? "⚠️" : "✅"}</span>
+    <span><strong>${escapeHtml(getToolName(toolCall))}</strong>${summary ? `: ${escapeHtml(summary)}` : ""}</span>
+  `;
+  return card;
+}

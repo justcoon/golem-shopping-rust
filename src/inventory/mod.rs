@@ -3,6 +3,9 @@ use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub mod saga;
+pub use saga::reserve_inventory_saga;
+
 #[derive(Schema, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct InventoryItem {
     pub region: String,
@@ -241,7 +244,7 @@ pub enum ReserveQuantityError {
     InventoryNotFound(InventoryNotFoundError),
 }
 
-#[agent_definition(mount = "/v1/inventory/{id}")]
+#[agent_definition(mount = "/v1/inventory/{id}", snapshotting = "every(10)")]
 pub trait InventoryAgent {
     fn new(id: String) -> Self;
 
@@ -374,10 +377,7 @@ impl InventoryAgent for InventoryAgentImpl {
         context: golem_rust::agentic::SnapshotRestoreContext,
     ) -> Result<Self, String> {
         let data: Option<Inventory> = crate::common::snapshot::deserialize(&bytes)?;
-        let mut parameters = golem_rust::agentic::DirectAgentInput::new(context.parameters)
-            .map_err(|error| error.to_string())?;
-        let id: String = parameters.take().map_err(|error| error.to_string())?;
-        parameters.finish().map_err(|error| error.to_string())?;
+        let id: String = crate::common::snapshot::extract_agent_id(context)?;
 
         Ok(Self {
             _id: id,

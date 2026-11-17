@@ -198,66 +198,11 @@ impl From<Cart> for CreateOrder {
     }
 }
 
-#[derive(Schema, Clone)]
-pub struct ItemNotFoundError {
-    pub message: String,
-    pub product_id: String,
-}
-impl ItemNotFoundError {
-    fn new(product_id: String) -> ItemNotFoundError {
-        ItemNotFoundError {
-            message: "Item not found".to_string(),
-            product_id,
-        }
-    }
-}
-#[derive(Schema, Clone)]
-pub struct PricingNotFoundError {
-    pub message: String,
-    pub product_id: String,
-}
-impl PricingNotFoundError {
-    fn new(product_id: String) -> PricingNotFoundError {
-        PricingNotFoundError {
-            message: "Pricing not found".to_string(),
-            product_id,
-        }
-    }
-}
-#[derive(Schema, Clone)]
-pub struct ProductNotFoundError {
-    pub message: String,
-    pub product_id: String,
-}
+pub use crate::common::{
+    AddressNotValidError, BillingAddressNotSetError, EmailNotValidError, EmptyEmailError,
+    EmptyItemsError, ItemNotFoundError, PricingNotFoundError, ProductNotFoundError,
+};
 
-impl ProductNotFoundError {
-    fn new(product_id: String) -> ProductNotFoundError {
-        ProductNotFoundError {
-            message: "Product not found".to_string(),
-            product_id,
-        }
-    }
-}
-#[derive(Schema, Clone)]
-pub struct EmailNotValidError {
-    pub message: String,
-}
-#[derive(Schema, Clone)]
-pub struct EmptyItemsError {
-    pub message: String,
-}
-#[derive(Schema, Clone)]
-pub struct AddressNotValidError {
-    pub message: String,
-}
-#[derive(Schema, Clone)]
-pub struct BillingAddressNotSetError {
-    pub message: String,
-}
-#[derive(Schema, Clone)]
-pub struct EmptyEmailError {
-    pub message: String,
-}
 #[derive(Schema, Clone, Debug)]
 pub struct OrderCreateError {
     pub message: String,
@@ -410,33 +355,19 @@ where
     }
 }
 
-fn fulfill_inventory_reservations<I, S>(product_ids: I, order_id: &str)
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<str>,
-{
-    for pid in product_ids {
-        let mut client = InventoryAgentClient::get(pid.as_ref().to_string());
-        client.trigger_fulfill_reservation(order_id.to_string());
-    }
-}
-
-fn map_reservation_error(
-    item: &CartItem,
-    err: crate::inventory::ReserveQuantityError,
-) -> PrepareCheckoutError {
-    let (message, requested, available) = match err {
+fn map_reservation_error(err: crate::inventory::ReserveQuantityError) -> PrepareCheckoutError {
+    let (message, product_id, requested, available) = match err {
         crate::inventory::ReserveQuantityError::InsufficientInventory(e) => {
-            (e.message, e.requested, e.available)
+            (e.message, e.product_id, e.requested, e.available)
         }
         crate::inventory::ReserveQuantityError::InventoryNotFound(e) => {
-            (e.message, item.quantity, 0)
+            (e.message, e.product_id, 0, 0)
         }
     };
 
     PrepareCheckoutError::InsufficientStock(InsufficientStockError {
         message,
-        product_id: item.product_id.clone(),
+        product_id,
         requested,
         available,
     })
@@ -457,30 +388,15 @@ async fn reserve_inventory_for_cart(
     order_id: &str,
     expires_at: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), PrepareCheckoutError> {
-    let region = INVENTORY_REGION_DEFAULT.to_string();
-    let mut reserved_products: Vec<String> = Vec::new();
+    let region = INVENTORY_REGION_DEFAULT;
+    let reservation_items: Vec<(String, u32)> = items
+        .iter()
+        .map(|item| (item.product_id.clone(), item.quantity))
+        .collect();
 
-    for item in items {
-        let mut inv_client = InventoryAgentClient::get(item.product_id.clone());
-        let res = inv_client
-            .reserve_quantity(
-                order_id.to_string(),
-                region.clone(),
-                item.quantity,
-                Some(expires_at),
-            )
-            .await;
-
-        match res {
-            Ok(_) => reserved_products.push(item.product_id.clone()),
-            Err(err) => {
-                release_inventory_reservations(&reserved_products, order_id);
-                return Err(map_reservation_error(item, err));
-            }
-        }
-    }
-
-    Ok(())
+    crate::inventory::reserve_inventory_saga(&reservation_items, order_id, region, Some(expires_at))
+        .await
+        .map_err(map_reservation_error)
 }
 
 fn get_cart_item(product: Product, pricing: PricingItem, quantity: u32) -> CartItem {
@@ -493,7 +409,7 @@ fn get_cart_item(product: Product, pricing: PricingItem, quantity: u32) -> CartI
     }
 }
 
-#[agent_definition(mount = "/v1/cart/{id}")]
+#[agent_definition(mount = "/v1/cart/{id}", snapshotting = "every(10)")]
 pub trait CartAgent {
     fn new(id: String) -> Self;
 
@@ -616,25 +532,37 @@ impl CartAgent for CartAgentImpl {
                 return Some(cart.clone());
             }
 
-            let mut items = Vec::new();
-            for item in cart.items.clone() {
-                let product_id = item.product_id;
-                let quantity = item.quantity;
+            let currency = cart.currency.clone();
+            let pricing_region = PRICING_REGION_DEFAULT.to_string();
 
-                let product_client = ProductAgentClient::get(product_id.clone());
-                let pricing_client = PricingAgentClient::get(product_id.clone());
+            let tasks: Vec<_> = cart
+                .items
+                .iter()
+                .cloned()
+                .map(|item| {
+                    let curr = currency.clone();
+                    let reg = pricing_region.clone();
+                    async move {
+                        let product_client = ProductAgentClient::get(item.product_id.clone());
+                        let pricing_client = PricingAgentClient::get(item.product_id.clone());
 
-                let (product, pricing) = join(
-                    product_client.get_product(),
-                    pricing_client
-                        .get_price(cart.currency.clone(), PRICING_REGION_DEFAULT.to_string()),
-                )
-                .await;
+                        let (product, pricing) = join(
+                            product_client.get_product(),
+                            pricing_client.get_price(curr, reg),
+                        )
+                        .await;
 
-                if let (Some(product), Some(pricing)) = (product, pricing) {
-                    items.push(get_cart_item(product, pricing, quantity));
-                }
-            }
+                        match (product, pricing) {
+                            (Some(product), Some(pricing)) => {
+                                Some(get_cart_item(product, pricing, item.quantity))
+                            }
+                            _ => None,
+                        }
+                    }
+                })
+                .collect();
+
+            let items: Vec<CartItem> = join_all(tasks).await.into_iter().flatten().collect();
             cart.set_items(items);
             Some(cart.clone())
         } else {
@@ -759,8 +687,6 @@ impl CartAgent for CartAgentImpl {
             .initialize_order(order)
             .await
             .map_err(map_init_order_error)?;
-
-        fulfill_inventory_reservations(state.items.iter().map(|i| &i.product_id), &order_id);
 
         let user_id = state.user_id.clone();
         state.order_created(order_id.clone());
@@ -1068,10 +994,7 @@ impl CartAgent for CartAgentImpl {
         context: golem_rust::agentic::SnapshotRestoreContext,
     ) -> Result<Self, String> {
         let data: Option<Cart> = crate::common::snapshot::deserialize(&bytes)?;
-        let mut parameters = golem_rust::agentic::DirectAgentInput::new(context.parameters)
-            .map_err(|error| error.to_string())?;
-        let id: String = parameters.take().map_err(|error| error.to_string())?;
-        parameters.finish().map_err(|error| error.to_string())?;
+        let id: String = crate::common::snapshot::extract_agent_id(context)?;
 
         Ok(Self {
             _id: id,

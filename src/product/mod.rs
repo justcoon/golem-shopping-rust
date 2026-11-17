@@ -12,7 +12,7 @@ pub struct Product {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[agent_definition(mount = "/v1/product/{id}")]
+#[agent_definition(mount = "/v1/product/{id}", snapshotting = "every(10)")]
 pub trait ProductAgent {
     fn new(id: String) -> Self;
 
@@ -72,10 +72,7 @@ impl ProductAgent for ProductAgentImpl {
         context: golem_rust::agentic::SnapshotRestoreContext,
     ) -> Result<Self, String> {
         let data: Option<Product> = crate::common::snapshot::deserialize(&bytes)?;
-        let mut parameters = golem_rust::agentic::DirectAgentInput::new(context.parameters)
-            .map_err(|error| error.to_string())?;
-        let id: String = parameters.take().map_err(|error| error.to_string())?;
-        parameters.finish().map_err(|error| error.to_string())?;
+        let id: String = crate::common::snapshot::extract_agent_id(context)?;
 
         Ok(Self {
             _id: id,

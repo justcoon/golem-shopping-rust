@@ -150,7 +150,7 @@ async fn get_llm_recommendations(
     })
 }
 
-#[agent_definition(mount = "/v1/recommendation/{id}")]
+#[agent_definition(mount = "/v1/recommendation/{id}", snapshotting = "every(10)")]
 pub trait ShoppingRecommendationAgent {
     fn new(id: String, #[agent_config] config: Config<AgentConfig>) -> Self;
 
@@ -222,10 +222,7 @@ impl ShoppingRecommendationAgent for ShoppingRecommendationAgentImpl {
         context: golem_rust::agentic::SnapshotRestoreContext,
     ) -> Result<Self, String> {
         let data: RecommendedItems = crate::common::snapshot::deserialize(&bytes)?;
-        let mut parameters = golem_rust::agentic::DirectAgentInput::new(context.parameters)
-            .map_err(|error| error.to_string())?;
-        let id: String = parameters.take().map_err(|error| error.to_string())?;
-        parameters.finish().map_err(|error| error.to_string())?;
+        let id: String = crate::common::snapshot::extract_agent_id(context)?;
 
         Ok(Self {
             _id: id,

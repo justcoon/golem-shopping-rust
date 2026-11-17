@@ -1,6 +1,11 @@
 use golem_rust::Schema;
 use serde::{Deserialize, Serialize};
 
+pub mod errors;
+pub mod query;
+
+pub use errors::*;
+
 pub const CURRENCY_DEFAULT: &str = "USD";
 pub const PRICING_REGION_DEFAULT: &str = "global";
 pub const INVENTORY_REGION_DEFAULT: &str = "global";
@@ -38,9 +43,11 @@ pub(crate) mod snapshot {
     where
         T: de::Deserialize<'a>,
     {
-        let (version, data) = bytes.split_at(1);
+        let (&version, data) = bytes
+            .split_first()
+            .ok_or_else(|| "Empty snapshot data".to_string())?;
 
-        match version[0] {
+        match version {
             SERIALIZATION_VERSION_V1 => {
                 let value: T = serde_json::from_slice(data).map_err(|err| err.to_string())?;
 
@@ -48,5 +55,16 @@ pub(crate) mod snapshot {
             }
             _ => Err("Unsupported serialization version".to_string()),
         }
+    }
+
+    /// Extracts the agent ID string from the snapshot restore context parameters.
+    pub(crate) fn extract_agent_id(
+        context: golem_rust::agentic::SnapshotRestoreContext,
+    ) -> Result<String, String> {
+        let mut input = golem_rust::agentic::DirectAgentInput::new(context.parameters)
+            .map_err(|error| error.to_string())?;
+        let param: String = input.take().map_err(|error| error.to_string())?;
+        input.finish().map_err(|error| error.to_string())?;
+        Ok(param)
     }
 }

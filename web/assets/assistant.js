@@ -2,12 +2,13 @@
 
 import {
   cleanMojibake,
+  createCompletedToolCard,
+  createRunningToolCard,
   escapeHtml,
   formatTime,
-  normalizeChunk,
-  normalizeRole,
-  normalizeToolCall,
+  parseStreamEvents,
   renderMarkdown,
+  updateCompletedToolCard,
 } from "./chat-common.js";
 
 /**
@@ -286,62 +287,56 @@ async function sendMessage(message) {
       const es = new EventSource(slotUrl);
       currentEventSource = es;
 
-      es.onmessage = (event) => {
-        try {
-          if (!event.data) return;
-          const rawChunk = JSON.parse(event.data);
-          const chunk = normalizeChunk(rawChunk);
-          if (!chunk) return;
-
-          if (chunk.tag === "text_delta") {
+      const handleData = (event) => {
+        const events = parseStreamEvents(event.data);
+        for (const { tag, payload } of events) {
+          if (tag === "text_delta") {
             receivedAnyText = true;
-            bubble.appendText(chunk.delta || "");
-          } else if (chunk.tag === "tool_start") {
-            const tc = chunk.toolCall;
+            bubble.appendText(payload.delta || payload.content || "");
+          } else if (tag === "tool_start") {
+            const tc = payload.toolCall || payload.tool_call;
             if (tc) {
-              const card = document.createElement("div");
-              card.className = "tool-card running";
-              card.innerHTML = `
-                <span class="tool-spinner"></span>
-                <span>Executing <strong>${escapeHtml(tc.toolName || "tool")}</strong>...</span>
-              `;
+              const card = createRunningToolCard(tc);
               bubble.toolCardsContainer.appendChild(card);
               bubble.toolCards.set(tc.id, card);
               bubble.updateToolCount();
               scrollToBottom();
             }
-          } else if (chunk.tag === "tool_result") {
-            const tc = chunk.toolCall;
+          } else if (tag === "tool_result") {
+            const tc = payload.toolCall || payload.tool_call;
             if (tc && bubble.toolCards.has(tc.id)) {
               const card = bubble.toolCards.get(tc.id);
-              let summary = "Completed";
-              try {
-                const resObj = typeof tc.result === "string" ? JSON.parse(tc.result) : tc.result;
-                summary = resObj.summary || (resObj.error ? `Failed: ${resObj.error}` : "Done");
-              } catch {
-                summary = String(tc.result);
-              }
-              const isFailed = summary.toLowerCase().includes("failed");
-              card.className = `tool-card ${isFailed ? "failed" : "completed"}`;
-              card.innerHTML = `
-                <span>${isFailed ? "⚠️" : "✅"}</span>
-                <span><strong>${escapeHtml(tc.toolName || "tool")}:</strong> ${escapeHtml(summary)}</span>
-              `;
+              updateCompletedToolCard(card, tc);
               scrollToBottom();
             }
-          } else if (chunk.tag === "done") {
+          } else if (tag === "done") {
             es.close();
             currentEventSource = null;
             resolve(undefined);
-          } else if (chunk.tag === "error") {
+          } else if (tag === "error") {
             es.close();
             currentEventSource = null;
-            reject(new Error(chunk.error || "Stream returned error"));
+            reject(new Error(payload.error || payload.content || "Stream returned error"));
           }
-        } catch (parseErr) {
-          console.warn("Error parsing stream chunk:", parseErr);
         }
       };
+
+      // Golem Durable Streams sends named 'data' events and 'control' events
+      es.addEventListener("data", handleData);
+      es.addEventListener("message", handleData);
+
+      es.addEventListener("control", (event) => {
+        try {
+          const ctrl = JSON.parse(event.data);
+          if (ctrl?.streamClosed) {
+            es.close();
+            currentEventSource = null;
+            resolve(undefined);
+          }
+        } catch {
+          // Ignore control parse errors
+        }
+      });
 
       es.onerror = (err) => {
         es.close();
@@ -379,16 +374,8 @@ async function sendMessage(message) {
         syncData.toolCallsUsed ||
         syncData.tool_calls_used;
       if (Array.isArray(toolCalls)) {
-        for (const rawTc of toolCalls) {
-          const tc = normalizeToolCall(rawTc);
-          if (!tc) continue;
-          const card = document.createElement("div");
-          card.className = "tool-card completed";
-          card.innerHTML = `
-            <span>✅</span>
-            <span><strong>${escapeHtml(tc.toolName)}</strong></span>
-          `;
-          bubble.toolCardsContainer.appendChild(card);
+        for (const tc of toolCalls) {
+          bubble.toolCardsContainer.appendChild(createCompletedToolCard(tc));
         }
         bubble.updateToolCount();
       }
@@ -420,13 +407,7 @@ async function loadHistory() {
     const res = await fetch(`/v1/assistant/${encodeURIComponent(currentUserId)}/history`);
     if (!res.ok) return;
 
-    let history = await res.json();
-    if (history && !Array.isArray(history)) {
-      if (Array.isArray(history.value)) history = history.value;
-      else if (Array.isArray(history.Ok)) history = history.Ok;
-      else if (Array.isArray(history.ok)) history = history.ok;
-      else if (Array.isArray(history.messages)) history = history.messages;
-    }
+    const history = await res.json();
     if (!Array.isArray(history) || history.length === 0) {
       if (welcomeMessage) welcomeMessage.style.display = "block";
       return;
@@ -437,7 +418,7 @@ async function loadHistory() {
 
     let lastPrompt = "";
     for (const msg of history) {
-      const role = normalizeRole(msg.role);
+      const role = String(msg.role || "").toLowerCase();
       if (role === "user") {
         lastPrompt = msg.content;
         appendUserMessage(msg.content, msg.timestamp);
@@ -446,28 +427,11 @@ async function loadHistory() {
         bubble.setText(msg.content || "");
         if (bubble.cursor) bubble.cursor.remove();
 
-        const toolCalls = msg.toolCalls || msg.tool_calls || msg.tool_calls_used || msg.toolCallsUsed;
+        const toolCalls =
+          msg.toolCalls || msg.tool_calls || msg.tool_calls_used || msg.toolCallsUsed;
         if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-          for (const rawTc of toolCalls) {
-            const tc = normalizeToolCall(rawTc);
-            if (!tc) continue;
-            let summary = "";
-            if (tc.result) {
-              try {
-                const resObj = typeof tc.result === "string" ? JSON.parse(tc.result) : tc.result;
-                summary = resObj.summary || (resObj.error ? `Failed: ${resObj.error}` : "");
-              } catch {
-                summary = String(tc.result);
-              }
-            }
-            const isFailed = summary.toLowerCase().includes("failed") || summary.toLowerCase().includes("error");
-            const card = document.createElement("div");
-            card.className = `tool-card ${isFailed ? "failed" : "completed"}`;
-            card.innerHTML = `
-              <span>${isFailed ? "⚠️" : "✅"}</span>
-              <span><strong>${escapeHtml(tc.toolName)}</strong>${summary ? `: ${escapeHtml(summary)}` : ""}</span>
-            `;
-            bubble.toolCardsContainer.appendChild(card);
+          for (const tc of toolCalls) {
+            bubble.toolCardsContainer.appendChild(createCompletedToolCard(tc));
           }
           bubble.updateToolCount();
           // Collapse historical tools by default to keep chat clean
