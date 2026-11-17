@@ -1,7 +1,7 @@
 # golem-shopping-rust
 
 ## Overview
-This is an e-commerce application built with an agent-based architecture, leveraging Golem Cloud for distributed, stateful agents and first-class platform tools. The application provides a complete online shopping experience with product browsing, cart management, two-phase checkout reservation, order lifecycle management, an AI-powered shopping assistant, a store operations manager, and native Model Context Protocol (MCP) integration.
+This is an e-commerce application built with an agent-based architecture, leveraging Golem Cloud for distributed, stateful agents and first-class platform tools. The application provides a complete online shopping experience with product browsing, cart management, two-phase checkout with saga-coordinated inventory reservations, order lifecycle management, an AI-powered shopping assistant, a store operations manager, and native Model Context Protocol (MCP) integration.
 
 ![Architecture Diagram](architecture.png)
 
@@ -30,7 +30,7 @@ The application defines strongly typed Golem platform tools (`#[tool_definition]
 - **`manager-order-tools`**: Store operations order search, recent order listings, fulfillment shipping, cancellations, item edits, and address updates.
 
 ### Key Features
-- **Two-Phase Checkout & Reservation**: Time-bounded inventory reservations (10-minute hold window) during checkout preparation, preventing race conditions and cart modifications until confirmation or cancellation.
+- **Two-Phase Checkout & Saga Inventory Reservations**: Multi-item inventory reservations coordinated via Golem's native saga pattern (`fallible_transaction`), ensuring automatic reverse-order compensation (release) if any item is out of stock, paired with a time-bounded hold window (10-minute TTL) during checkout preparation to prevent race conditions and cart modifications until confirmation or cancellation.
 - **Model Context Protocol (MCP) Integration**: Built-in Streamable HTTP MCP server on port `9007` exposing isolated, role-segregated endpoints for customer shopping (`shop-mcp`) and operations management (`manager-mcp`).
 - **First-Class Tools & Direct In-Process Execution**: Assistants mount tools declaratively using `register_tools!`, with seamless support for both ambient client RPC and direct in-process execution (`use_impl: true`).
 - **RESTful HTTP API**: All agents expose HTTP endpoints declared in `golem.yaml` and mapped directly to agent methods.
