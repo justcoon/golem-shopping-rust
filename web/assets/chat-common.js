@@ -382,7 +382,7 @@ export function updateCompletedToolCard(card, toolCall) {
   card.className = `tool-card ${isFailed ? "failed" : "completed"}`;
   card.innerHTML = `
     <span>${isFailed ? "⚠️" : "✅"}</span>
-    <span><strong>${escapeHtml(getToolName(toolCall))}:</strong> ${escapeHtml(summary)}</span>
+    <span><strong>${escapeHtml(getToolName(toolCall))}</strong>${summary ? ` <span class="tool-summary-divider">•</span> ${escapeHtml(summary)}` : ""}</span>
   `;
 }
 
@@ -415,7 +415,7 @@ export function createCompletedToolCard(toolCall) {
   card.className = `tool-card ${isFailed ? "failed" : "completed"}`;
   card.innerHTML = `
     <span>${isFailed ? "⚠️" : "✅"}</span>
-    <span><strong>${escapeHtml(getToolName(toolCall))}</strong>${summary ? `: ${escapeHtml(summary)}` : ""}</span>
+    <span><strong>${escapeHtml(getToolName(toolCall))}</strong>${summary ? ` <span class="tool-summary-divider">•</span> ${escapeHtml(summary)}` : ""}</span>
   `;
   return card;
 }

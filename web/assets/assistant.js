@@ -316,7 +316,12 @@ async function sendMessage(message) {
           } else if (tag === "error") {
             es.close();
             currentEventSource = null;
-            reject(new Error(payload.error || payload.content || "Stream returned error"));
+            const errMsg =
+              payload.content || payload.error || "An error occurred with the AI assistant.";
+            bubble.setText(errMsg);
+            bubble.row.classList.add("error");
+            bubble.showRetry();
+            resolve(undefined);
           }
         }
       };
@@ -426,6 +431,10 @@ async function loadHistory() {
         const bubble = createAssistantBubble(lastPrompt, msg.timestamp);
         bubble.setText(msg.content || "");
         if (bubble.cursor) bubble.cursor.remove();
+        if (msg.type === "error") {
+          bubble.row.classList.add("error");
+          bubble.showRetry();
+        }
 
         const toolCalls =
           msg.toolCalls || msg.tool_calls || msg.tool_calls_used || msg.toolCallsUsed;

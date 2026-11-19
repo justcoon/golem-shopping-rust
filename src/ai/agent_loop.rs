@@ -111,6 +111,7 @@ fn ensure_gemini_thought_signature(tool_call: &mut OpenAiToolCall) {
 #[derive(Deserialize, Debug)]
 struct OpenAiChatResponse {
     choices: Option<Vec<OpenAiChoice>>,
+    #[allow(dead_code)]
     error: Option<OpenAiErrorPayload>,
 }
 
@@ -506,6 +507,60 @@ fn build_initial_messages(
     messages
 }
 
+fn map_http_error_to_user_message(status: http::StatusCode, body_bytes: &[u8]) -> String {
+    let body_str = String::from_utf8_lossy(body_bytes);
+    log::error!("AI upstream error (HTTP {status}): {body_str}");
+
+    match status.as_u16() {
+        401 | 403 => {
+            "AI authentication failed. Please check your API key configuration.".to_string()
+        }
+        429 => "The AI assistant is temporarily busy due to rate limits. Please try again shortly."
+            .to_string(),
+        503 => "The AI assistant is currently experiencing high demand. Please try again in a few moments."
+            .to_string(),
+        _ => "The AI assistant is temporarily unavailable. Please try again later.".to_string(),
+    }
+}
+
+fn make_error_turn(
+    user_msg: impl Into<String>,
+    tool_calls_used: Vec<ToolCallRecord>,
+    mut chunks: Vec<ChatChunk>,
+) -> ChatTurnResult {
+    let content = user_msg.into();
+    chunks.push(ChatChunk::Error {
+        content: content.clone(),
+    });
+    chunks.push(ChatChunk::Done {
+        content: String::new(),
+    });
+    ChatTurnResult {
+        reply: content,
+        tool_calls_used,
+        chunks,
+        is_error: true,
+    }
+}
+
+async fn write_error_stream(
+    writer: &mut AgentStreamWriter<ChatChunk>,
+    user_msg: impl Into<String>,
+) -> String {
+    let content = user_msg.into();
+    let _ = writer
+        .write_one(ChatChunk::Error {
+            content: content.clone(),
+        })
+        .await;
+    let _ = writer
+        .write_one(ChatChunk::Done {
+            content: String::new(),
+        })
+        .await;
+    content
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
     system_prompt: &str,
@@ -523,22 +578,7 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
         let msg = missing_api_key_message.unwrap_or(
             "AI agent is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
         );
-        return ChatTurnResult {
-            reply: msg.to_string(),
-            tool_calls_used: Vec::new(),
-            chunks: vec![
-                ChatChunk::TextDelta {
-                    content: msg.to_string(),
-                },
-                ChatChunk::Error {
-                    content: msg.to_string(),
-                },
-                ChatChunk::Done {
-                    content: String::new(),
-                },
-            ],
-            is_error: true,
-        };
+        return make_error_turn(msg, Vec::new(), Vec::new());
     }
 
     let endpoint_url = resolve_endpoint_url(model, api_url);
@@ -573,22 +613,12 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
         let request_bytes = match serde_json::to_vec(&request_payload) {
             Ok(b) => b,
             Err(e) => {
-                let err_msg = format!("Failed to serialize chat request: {e}");
-                chunks.push(ChatChunk::TextDelta {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Error {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Done {
-                    content: String::new(),
-                });
-                return ChatTurnResult {
-                    reply: err_msg,
-                    tool_calls_used: accumulated_tool_calls,
+                log::error!("Failed to serialize chat request: {e}");
+                return make_error_turn(
+                    "An error occurred while preparing the chat request. Please try again.",
+                    accumulated_tool_calls,
                     chunks,
-                    is_error: true,
-                };
+                );
             }
         };
 
@@ -602,22 +632,12 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
         {
             Ok(req) => req,
             Err(e) => {
-                let err_msg = format!("Failed to build HTTP request: {e}");
-                chunks.push(ChatChunk::TextDelta {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Error {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Done {
-                    content: String::new(),
-                });
-                return ChatTurnResult {
-                    reply: err_msg,
-                    tool_calls_used: accumulated_tool_calls,
+                log::error!("Failed to build HTTP request: {e}");
+                return make_error_turn(
+                    "An error occurred while preparing the network request. Please try again.",
+                    accumulated_tool_calls,
                     chunks,
-                    is_error: true,
-                };
+                );
             }
         };
 
@@ -626,22 +646,12 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
         let response = match http::send(request).await {
             Ok(resp) => resp,
             Err(e) => {
-                let err_msg = format!("AI service network request failed: {e}");
-                chunks.push(ChatChunk::TextDelta {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Error {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Done {
-                    content: String::new(),
-                });
-                return ChatTurnResult {
-                    reply: err_msg,
-                    tool_calls_used: accumulated_tool_calls,
+                log::error!("AI service network request failed: {e}");
+                return make_error_turn(
+                    "Unable to connect to the AI service. Please check your network connection and try again.",
+                    accumulated_tool_calls,
                     chunks,
-                    is_error: true,
-                };
+                );
             }
         };
 
@@ -649,114 +659,54 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
         let body_bytes = match http::response_bytes(response).await {
             Ok(b) => b,
             Err(e) => {
-                let err_msg = format!("Failed to read AI response body: {e}");
-                chunks.push(ChatChunk::TextDelta {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Error {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Done {
-                    content: String::new(),
-                });
-                return ChatTurnResult {
-                    reply: err_msg,
-                    tool_calls_used: accumulated_tool_calls,
+                log::error!("Failed to read AI response body: {e}");
+                return make_error_turn(
+                    "The AI service response could not be read. Please try again.",
+                    accumulated_tool_calls,
                     chunks,
-                    is_error: true,
-                };
+                );
             }
         };
 
         if !status.is_success() {
-            let body_str = String::from_utf8_lossy(&body_bytes);
-            let parsed_error: Option<OpenAiChatResponse> = serde_json::from_slice(&body_bytes).ok();
-            let err_detail = parsed_error
-                .and_then(|r| r.error)
-                .and_then(|e| e.message)
-                .unwrap_or_else(|| body_str.to_string());
-            let err_msg = format!("AI service error (HTTP {status}): {err_detail}");
-            chunks.push(ChatChunk::TextDelta {
-                content: err_msg.clone(),
-            });
-            chunks.push(ChatChunk::Error {
-                content: err_msg.clone(),
-            });
-            chunks.push(ChatChunk::Done {
-                content: String::new(),
-            });
-            return ChatTurnResult {
-                reply: err_msg,
-                tool_calls_used: accumulated_tool_calls,
-                chunks,
-                is_error: true,
-            };
+            let user_msg = map_http_error_to_user_message(status, &body_bytes);
+            return make_error_turn(user_msg, accumulated_tool_calls, chunks);
         }
 
         let parsed: OpenAiChatResponse = match serde_json::from_slice(&body_bytes) {
             Ok(p) => p,
             Err(e) => {
                 let body_str = String::from_utf8_lossy(&body_bytes);
-                let err_msg = format!("Failed to parse AI response JSON: {e} (body: {body_str})");
-                chunks.push(ChatChunk::TextDelta {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Error {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Done {
-                    content: String::new(),
-                });
-                return ChatTurnResult {
-                    reply: err_msg,
-                    tool_calls_used: accumulated_tool_calls,
+                log::error!("Failed to parse AI response JSON: {e} (body: {body_str})");
+                return make_error_turn(
+                    "Received an invalid response from the AI service. Please try again.",
+                    accumulated_tool_calls,
                     chunks,
-                    is_error: true,
-                };
+                );
             }
         };
 
         let choice = match parsed.choices.and_then(|mut cs| cs.pop()) {
             Some(c) => c,
             None => {
-                let err_msg = "AI service returned empty response choices".to_string();
-                chunks.push(ChatChunk::TextDelta {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Error {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Done {
-                    content: String::new(),
-                });
-                return ChatTurnResult {
-                    reply: err_msg,
-                    tool_calls_used: accumulated_tool_calls,
+                log::error!("AI service returned empty response choices");
+                return make_error_turn(
+                    "The AI service returned an empty response. Please try again.",
+                    accumulated_tool_calls,
                     chunks,
-                    is_error: true,
-                };
+                );
             }
         };
 
         let message = match choice.message {
             Some(m) => m,
             None => {
-                let err_msg = "AI choice did not contain a message".to_string();
-                chunks.push(ChatChunk::TextDelta {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Error {
-                    content: err_msg.clone(),
-                });
-                chunks.push(ChatChunk::Done {
-                    content: String::new(),
-                });
-                return ChatTurnResult {
-                    reply: err_msg,
-                    tool_calls_used: accumulated_tool_calls,
+                log::error!("AI choice did not contain a message");
+                return make_error_turn(
+                    "The AI service returned an unexpected message structure. Please try again.",
+                    accumulated_tool_calls,
                     chunks,
-                    is_error: true,
-                };
+                );
             }
         };
 
@@ -840,23 +790,11 @@ pub async fn execute_agent_chat_turn<D: ToolDispatcher>(
         }
     }
 
-    let limit_msg = "AI loop reached maximum tool call iterations without finishing.".to_string();
-    chunks.push(ChatChunk::TextDelta {
-        content: limit_msg.clone(),
-    });
-    chunks.push(ChatChunk::Error {
-        content: limit_msg.clone(),
-    });
-    chunks.push(ChatChunk::Done {
-        content: String::new(),
-    });
-
-    ChatTurnResult {
-        reply: limit_msg,
-        tool_calls_used: accumulated_tool_calls,
+    make_error_turn(
+        "AI loop reached maximum tool call iterations without finishing.",
+        accumulated_tool_calls,
         chunks,
-        is_error: true,
-    }
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -874,22 +812,7 @@ pub async fn execute_agent_chat_stream<D: ToolDispatcher>(
 ) {
     let trimmed_key = api_key.trim();
     if trimmed_key.is_empty() {
-        let msg = missing_key_hint;
-        let _ = writer
-            .write_one(ChatChunk::TextDelta {
-                content: msg.to_string(),
-            })
-            .await;
-        let _ = writer
-            .write_one(ChatChunk::Error {
-                content: msg.to_string(),
-            })
-            .await;
-        let _ = writer
-            .write_one(ChatChunk::Done {
-                content: String::new(),
-            })
-            .await;
+        write_error_stream(&mut writer, missing_key_hint).await;
         return;
     }
 
@@ -931,23 +854,12 @@ pub async fn execute_agent_chat_stream<D: ToolDispatcher>(
         let request_bytes = match serde_json::to_vec(&request_payload) {
             Ok(b) => b,
             Err(e) => {
-                let err_msg = format!("Failed to serialize chat request: {e}");
-                let _ = writer
-                    .write_one(ChatChunk::TextDelta {
-                        content: err_msg.clone(),
-                    })
-                    .await;
-                let _ = writer
-                    .write_one(ChatChunk::Error {
-                        content: err_msg.clone(),
-                    })
-                    .await;
-                let _ = writer
-                    .write_one(ChatChunk::Done {
-                        content: String::new(),
-                    })
-                    .await;
-                final_assistant_reply = err_msg;
+                log::error!("Failed to serialize chat request: {e}");
+                final_assistant_reply = write_error_stream(
+                    &mut writer,
+                    "An error occurred while preparing the chat request. Please try again.",
+                )
+                .await;
                 is_error = true;
                 break;
             }
@@ -963,23 +875,12 @@ pub async fn execute_agent_chat_stream<D: ToolDispatcher>(
         {
             Ok(req) => req,
             Err(e) => {
-                let err_msg = format!("Failed to build HTTP request: {e}");
-                let _ = writer
-                    .write_one(ChatChunk::TextDelta {
-                        content: err_msg.clone(),
-                    })
-                    .await;
-                let _ = writer
-                    .write_one(ChatChunk::Error {
-                        content: err_msg.clone(),
-                    })
-                    .await;
-                let _ = writer
-                    .write_one(ChatChunk::Done {
-                        content: String::new(),
-                    })
-                    .await;
-                final_assistant_reply = err_msg;
+                log::error!("Failed to build HTTP request: {e}");
+                final_assistant_reply = write_error_stream(
+                    &mut writer,
+                    "An error occurred while preparing the network request. Please try again.",
+                )
+                .await;
                 is_error = true;
                 break;
             }
@@ -992,23 +893,12 @@ pub async fn execute_agent_chat_stream<D: ToolDispatcher>(
         let response = match http::send(request).await {
             Ok(resp) => resp,
             Err(e) => {
-                let err_msg = format!("AI service network request failed: {e}");
-                let _ = writer
-                    .write_one(ChatChunk::TextDelta {
-                        content: err_msg.clone(),
-                    })
-                    .await;
-                let _ = writer
-                    .write_one(ChatChunk::Error {
-                        content: err_msg.clone(),
-                    })
-                    .await;
-                let _ = writer
-                    .write_one(ChatChunk::Done {
-                        content: String::new(),
-                    })
-                    .await;
-                final_assistant_reply = err_msg;
+                log::error!("AI service network request failed: {e}");
+                final_assistant_reply = write_error_stream(
+                    &mut writer,
+                    "Unable to connect to the AI service. Please check your network connection and try again.",
+                )
+                .await;
                 is_error = true;
                 break;
             }
@@ -1017,29 +907,8 @@ pub async fn execute_agent_chat_stream<D: ToolDispatcher>(
         let status = response.status();
         if !status.is_success() {
             let body_bytes = http::response_bytes(response).await.unwrap_or_default();
-            let body_str = String::from_utf8_lossy(&body_bytes);
-            let parsed_error: Option<OpenAiChatResponse> = serde_json::from_slice(&body_bytes).ok();
-            let err_detail = parsed_error
-                .and_then(|r| r.error)
-                .and_then(|e| e.message)
-                .unwrap_or_else(|| body_str.to_string());
-            let err_msg = format!("AI service error (HTTP {status}): {err_detail}");
-            let _ = writer
-                .write_one(ChatChunk::TextDelta {
-                    content: err_msg.clone(),
-                })
-                .await;
-            let _ = writer
-                .write_one(ChatChunk::Error {
-                    content: err_msg.clone(),
-                })
-                .await;
-            let _ = writer
-                .write_one(ChatChunk::Done {
-                    content: String::new(),
-                })
-                .await;
-            final_assistant_reply = err_msg;
+            let user_msg = map_http_error_to_user_message(status, &body_bytes);
+            final_assistant_reply = write_error_stream(&mut writer, user_msg).await;
             is_error = true;
             break;
         }
@@ -1054,7 +923,10 @@ pub async fn execute_agent_chat_stream<D: ToolDispatcher>(
             let frame = match frame_res {
                 Ok(f) => f,
                 Err(e) => {
-                    let err_msg = format!("AI response stream read error: {e}");
+                    log::error!("AI response stream read error: {e}");
+                    let user_msg =
+                        "An error occurred while receiving the AI response. Please try again."
+                            .to_string();
                     if !turn_reply.is_empty() {
                         if !final_assistant_reply.is_empty() {
                             final_assistant_reply.push(' ');
@@ -1064,16 +936,9 @@ pub async fn execute_agent_chat_stream<D: ToolDispatcher>(
                     if !final_assistant_reply.is_empty() {
                         final_assistant_reply.push(' ');
                     }
-                    final_assistant_reply.push_str(&err_msg);
+                    final_assistant_reply.push_str(&user_msg);
+                    let _ = write_error_stream(&mut writer, user_msg).await;
                     is_error = true;
-                    let _ = writer
-                        .write_one(ChatChunk::Error { content: err_msg })
-                        .await;
-                    let _ = writer
-                        .write_one(ChatChunk::Done {
-                            content: String::new(),
-                        })
-                        .await;
                     break;
                 }
             };
@@ -1089,22 +954,19 @@ pub async fn execute_agent_chat_stream<D: ToolDispatcher>(
                         Err(_) => continue,
                     };
                     if let Some(err) = chunk.error {
-                        let err_msg = err
+                        let raw_err = err
                             .message
                             .unwrap_or_else(|| "Unknown AI stream error".to_string());
+                        log::error!("AI stream error chunk: {raw_err}");
+                        let user_msg =
+                            "An error occurred during AI response generation. Please try again."
+                                .to_string();
                         if !final_assistant_reply.is_empty() {
                             final_assistant_reply.push(' ');
                         }
-                        final_assistant_reply.push_str(&err_msg);
+                        final_assistant_reply.push_str(&user_msg);
+                        let _ = write_error_stream(&mut writer, user_msg).await;
                         is_error = true;
-                        let _ = writer
-                            .write_one(ChatChunk::Error { content: err_msg })
-                            .await;
-                        let _ = writer
-                            .write_one(ChatChunk::Done {
-                                content: String::new(),
-                            })
-                            .await;
                         stream_done = true;
                         break;
                     }
