@@ -528,8 +528,13 @@ function renderMarkdown(md: string): string {
         </div>
 
         <!-- Message Body -->
+        <template v-if="msg.type === 'error'">
+          <div class="bubble-content error-bubble-content">
+            <p class="error-primary-message">{{ msg.content }}</p>
+          </div>
+        </template>
         <div
-          v-if="msg.role === 'assistant'"
+          v-else-if="msg.role === 'assistant'"
           class="bubble-content markdown-body"
           v-html="renderMarkdown(msg.content)"
         ></div>
@@ -608,7 +613,8 @@ function renderMarkdown(md: string): string {
           <span class="spinner" v-if="tool.status === 'running'"></span>
           <span v-else>✔</span>
           <span>{{ formatToolName(tool.name) }}</span>
-          <span v-if="tool.summary" class="tool-summary">: {{ tool.summary }}</span>
+          <span v-if="tool.summary" class="tool-summary-divider">•</span>
+          <span v-if="tool.summary" class="tool-summary">{{ tool.summary }}</span>
         </div>
       </div>
 
@@ -966,6 +972,19 @@ function renderMarkdown(md: string): string {
 
 .assistant-bubble.error-bubble .bubble-role {
   color: #fbbf24;
+}
+
+.error-bubble-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.error-primary-message {
+  margin: 0;
+  color: #fca5a5;
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 .bubble-role {
@@ -1350,6 +1369,10 @@ details[open] > .tool-section-summary .tool-section-label {
   background: rgba(52, 211, 153, 0.15);
   color: #34d399;
   border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.tool-summary-divider {
+  opacity: 0.6;
 }
 
 .streaming-pulse {

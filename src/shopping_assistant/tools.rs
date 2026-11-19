@@ -203,9 +203,8 @@ pub fn build_shopping_assistant_tools(user_id: String) -> ToolRegistry {
         } => |cart| {
             let draft = cart.draft.as_ref();
             let order_id = draft.map(|d| d.order_id.as_str()).unwrap_or("");
-            let expires_at = draft.map(|d| d.expires_at.to_rfc3339()).unwrap_or_default();
             format!(
-                "Prepared checkout for order #{order_id}! Total: {}{:.2}, items reserved until {expires_at}. Please ask the user to confirm.",
+                "Prepared checkout for order #{order_id}! Total: {}{:.2}, items reserved for 10 minutes. Please ask the user to confirm.",
                 cart.currency, cart.total
             )
         },

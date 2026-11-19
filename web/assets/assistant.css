@@ -518,6 +518,11 @@ body {
   color: #f87171;
 }
 
+.tool-summary-divider {
+  margin: 0 4px;
+  opacity: 0.5;
+}
+
 .tool-spinner {
   display: inline-block;
   width: 10px;
